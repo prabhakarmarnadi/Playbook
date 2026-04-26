@@ -1,0 +1,30 @@
+Extract structured fields from the following legal clause text.
+
+## Clause Type: {cluster_label}
+## Cluster Description: {cluster_description}
+
+## Primary Fields to Extract
+{fields}
+
+## Cross-Clause Fields (suggested by association rules)
+These fields are from related clause types and may be referenced in this text:
+{cross_clause_fields}
+
+## Field Correlations
+Known correlations between field values (use as validation hints):
+{field_correlations}
+
+## Text
+{text}
+
+## Instructions
+1. Extract values for each primary field listed above.
+2. Also check for any cross-clause field values mentioned in the text.
+3. For each extracted value, provide:
+   - field_name: the field name
+   - value: the extracted value
+   - confidence: 0.0-1.0 confidence score
+   - evidence: the text span supporting this extraction
+   - is_cross_clause: true if this is a cross-clause field
+
+Return a JSON object mapping field names to extraction results.

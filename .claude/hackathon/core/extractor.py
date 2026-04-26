@@ -24,6 +24,41 @@ from core.llm_client import LLMClient
 logger = logging.getLogger(__name__)
 
 
+def _build_extraction_arm_context(
+    cluster_label: str,
+    relationship_layer=None,
+) -> dict[str, str]:
+    """Build ARM context for extraction prompts."""
+    if relationship_layer is None:
+        return {
+            "cross_clause_fields": "None.",
+            "field_correlations": "None.",
+        }
+
+    implied = relationship_layer.get_implied_fields([cluster_label])
+    if implied:
+        lines = [f"- {f['field_item']} (confidence: {f['confidence']:.2f})" for f in implied[:10]]
+        cross_str = "\n".join(lines)
+    else:
+        cross_str = "None."
+
+    correlations = relationship_layer.get_field_correlations(cluster_label)
+    if correlations:
+        lines = []
+        for c in correlations[:10]:
+            ant = ", ".join(c["antecedent"])
+            con = ", ".join(c["consequent"])
+            lines.append(f"- {ant} -> {con} (lift: {c['lift']:.2f})")
+        corr_str = "\n".join(lines)
+    else:
+        corr_str = "None."
+
+    return {
+        "cross_clause_fields": cross_str,
+        "field_correlations": corr_str,
+    }
+
+
 # ── Cluster-Conditioned Extraction (V2) ────────────────────────────────────────
 
 CONDITIONED_PROMPT = """You are extracting structured data from a legal agreement section.

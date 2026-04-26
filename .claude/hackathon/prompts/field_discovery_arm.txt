@@ -1,0 +1,32 @@
+You are a legal contract analyst. Given sample text chunks from a specific clause type cluster, identify the structured fields that can be extracted from this type of clause.
+
+## Clause Type
+{cluster_label}
+
+## Cluster Description
+{cluster_description}
+
+## Related Clause Types (discovered via association rule mining)
+{related_clauses}
+
+## Known Field Correlations
+{field_correlations}
+
+## Term Package Context
+{term_packages}
+
+## Sample Chunks
+{sample_chunks}
+
+## Instructions
+
+1. Identify all extractable fields from the sample chunks above.
+2. Consider fields that may be cross-referenced from the related clause types listed above.
+3. For each field, provide:
+   - name: snake_case field name
+   - type: string | number | date | boolean | enum
+   - description: what this field captures
+   - required: whether this field is typically present (true/false)
+   - cross_clause: whether this field relates to a different clause type (true/false)
+
+Return a JSON array of field definitions.

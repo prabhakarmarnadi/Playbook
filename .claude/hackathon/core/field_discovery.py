@@ -177,6 +177,55 @@ def _call_azure(client, deployment: str, prompt: str, config: FieldDiscoveryConf
     return None
 
 
+def _build_arm_context(cluster_label: str, relationship_layer=None) -> dict[str, str]:
+    """Build ARM relationship context for field discovery prompts.
+
+    Returns dict with keys: related_clauses, field_correlations, term_packages.
+    All values are formatted strings ready for prompt injection.
+    """
+    if relationship_layer is None:
+        return {
+            "related_clauses": "No relationship data available.",
+            "field_correlations": "No field correlation data available.",
+            "term_packages": "No term package data available.",
+        }
+
+    related = relationship_layer.get_related_clause_types(cluster_label)
+    if related:
+        lines = []
+        for r in related[:10]:
+            lines.append(f"- {r['clause_type']} (confidence: {r['confidence']:.2f}, lift: {r['lift']:.2f}, {r['direction']})")
+        related_str = "\n".join(lines)
+    else:
+        related_str = "No related clause types discovered."
+
+    implied = relationship_layer.get_implied_fields([cluster_label])
+    if implied:
+        lines = []
+        for f in implied[:10]:
+            lines.append(f"- {f['field_item']} (confidence: {f['confidence']:.2f})")
+        field_str = "\n".join(lines)
+    else:
+        field_str = "No field correlations discovered."
+
+    packages = relationship_layer.get_term_packages()
+    relevant = [p for p in packages if cluster_label in p.get("clause_types", [])]
+    if relevant:
+        lines = []
+        for p in relevant[:5]:
+            types = ", ".join(p["clause_types"])
+            lines.append(f"- {{{types}}} (support: {p['support']:.2f})")
+        pkg_str = "\n".join(lines)
+    else:
+        pkg_str = "No relevant term packages."
+
+    return {
+        "related_clauses": related_str,
+        "field_correlations": field_str,
+        "term_packages": pkg_str,
+    }
+
+
 def discover_fields_for_cluster(
     client, deployment: str,
     cluster_label: str, keywords: list[str],

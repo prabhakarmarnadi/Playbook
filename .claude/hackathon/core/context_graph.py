@@ -1933,6 +1933,95 @@ class ContractContextGraph:
         return scores[:top_n]
 
     # ══════════════════════════════════════════════════════════════════════
+    # ARM INTEGRATION — association rule mining relationships as graph edges
+    # ══════════════════════════════════════════════════════════════════════
+
+    def add_arm_relationships(self, relationship_layer) -> int:
+        """Add ARM-discovered relationships as graph edges.
+        Returns the number of edges added.
+        """
+        episode = Episode(
+            episode_type="pipeline_run",
+            source="arm_relationships",
+            metadata={"method": "add_arm_relationships"},
+        )
+        self._register_episode(episode)
+
+        edges_added = 0
+        rules = relationship_layer._load_rules()
+        for rule in rules:
+            if rule["rule_type"] == "clause_dependency":
+                for ant in rule["antecedent"]:
+                    for con in rule["consequent"]:
+                        ant_node = f"{CT}{ant}"
+                        con_node = f"{CT}{con}"
+                        if not self.G.has_node(ant_node):
+                            self.G.add_node(ant_node, kind="clause_type", label=ant)
+                        if not self.G.has_node(con_node):
+                            self.G.add_node(con_node, kind="clause_type", label=con)
+                        self._add_or_increment_fact(
+                            source=ant_node,
+                            target=con_node,
+                            relation="DEPENDS_ON",
+                            episode=episode,
+                            weight=rule["confidence"],
+                            confidence=rule["confidence"],
+                            context={
+                                "confidence": rule["confidence"],
+                                "lift": rule["lift"],
+                                "support": rule["support"],
+                                "rule_id": rule["rule_id"],
+                            },
+                        )
+                        edges_added += 1
+            elif rule["rule_type"] in ("field_correlation", "cross_clause_field"):
+                for ant in rule["antecedent"]:
+                    for con in rule["consequent"]:
+                        self._add_or_increment_fact(
+                            source=ant,
+                            target=con,
+                            relation="FIELD_CORRELATES",
+                            episode=episode,
+                            weight=rule["confidence"],
+                            confidence=rule["confidence"],
+                            context={
+                                "lift": rule["lift"],
+                                "confidence": rule["confidence"],
+                                "rule_id": rule["rule_id"],
+                            },
+                        )
+                        edges_added += 1
+
+        packages = relationship_layer.get_term_packages()
+        for pkg in packages:
+            pkg_node = f"TP:{','.join(pkg['clause_types'][:3])}"
+            if not self.G.has_node(pkg_node):
+                self.G.add_node(pkg_node, kind="term_package",
+                                package_id=pkg["package_id"],
+                                support=pkg["support"])
+            for ct in pkg["clause_types"]:
+                ct_node = f"{CT}{ct}"
+                if not self.G.has_node(ct_node):
+                    self.G.add_node(ct_node, kind="clause_type", label=ct)
+                self._add_or_increment_fact(
+                    source=ct_node,
+                    target=pkg_node,
+                    relation="BUNDLED_WITH",
+                    episode=episode,
+                    weight=pkg["support"],
+                    confidence=1.0,
+                    context={
+                        "support": pkg["support"],
+                        "package_size": pkg["size"],
+                        "package_id": pkg["package_id"],
+                    },
+                )
+                edges_added += 1
+
+        logger.info(f"Added {edges_added} ARM relationship edges to context graph")
+        return edges_added
+
+    # ══════════════════════════════════════════════════════════════════════
     # UTILITIES
     # ══════════════════════════════════════════════════════════════════════
 

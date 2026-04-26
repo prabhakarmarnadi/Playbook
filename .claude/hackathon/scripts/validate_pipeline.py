@@ -429,6 +429,33 @@ def test_relationship_layer():
         print(f"    Related to 'Termination': {len(related)}, Packages: {len(packages)}")
 
 
+def test_relationship_integration():
+    """Validate that downstream consumers can query the relationship layer."""
+    from core.arm.arm_miner import mlxtend_available
+
+    if not mlxtend_available():
+        print("  [SKIP] mlxtend not installed")
+        return
+
+    # Test _build_arm_context without relationship layer (fallback)
+    from core.field_discovery import _build_arm_context
+
+    fd_ctx = _build_arm_context("Termination", relationship_layer=None)
+    assert "related_clauses" in fd_ctx, "Missing related_clauses key"
+    assert fd_ctx["related_clauses"] == "No relationship data available."
+
+    try:
+        from core.extractor import _build_extraction_arm_context
+        ex_ctx = _build_extraction_arm_context("Termination", relationship_layer=None)
+        assert "cross_clause_fields" in ex_ctx, "Missing cross_clause_fields key"
+        assert ex_ctx["cross_clause_fields"] == "None."
+    except ImportError as e:
+        # openai/llm_client dependency may not be available in all environments
+        print(f"  [NOTE] extractor import skipped (missing dependency: {e})")
+
+    print(f"  [PASS] Relationship integration (fallback paths verified)")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Validate Clustering V2 pipeline")
     parser.add_argument("--skip-llm", action="store_true", help="Skip tests requiring LLM API calls")
@@ -452,6 +479,7 @@ def main():
         ("KeyBERT Scorer", test_keybert_scorer),
         ("ARM Miner", test_arm_miner),
         ("Relationship Layer", test_relationship_layer),
+        ("Relationship Integration", test_relationship_integration),
     ]
 
     passed, failed = 0, 0
