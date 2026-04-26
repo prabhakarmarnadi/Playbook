@@ -73,6 +73,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from core.nupunkt_chunker import structural_decompose
+
 # ── Legal structural patterns (from legacy semantic_chunker.py) ────────────────
 LEGAL_SECTION_PATTERNS = [
     r"^\s*(?:ARTICLE|Article|SECTION|Section)\s+[IVXLCDM\d]+",
@@ -753,6 +755,45 @@ def sliding_window_chunk(
         start += char_step
         if start >= end:
             break
+
+    return chunks
+
+
+def structural_chunk(
+    text: str,
+    chunk_size: int = 256,
+    overlap: int = 64,
+    min_chunk_chars: int = 80,
+) -> list[dict]:
+    """Structurally decompose text, then chunk within each block.
+
+    Uses nupunkt for block/sentence boundaries when available.
+    Each chunk inherits block_id and sentence_ids from its structural context.
+    """
+    blocks = structural_decompose(text)
+    chunks = []
+    global_idx = 0
+
+    for block in blocks:
+        block_chunks = sliding_window_chunk(
+            block["text"],
+            chunk_size=chunk_size,
+            overlap=overlap,
+            min_chunk_chars=min_chunk_chars,
+        )
+        for chunk in block_chunks:
+            chunk_text = chunk["text"]
+            overlapping_sids = []
+            for sent in block["sentences"]:
+                if sent["text"] in chunk_text or chunk_text in sent["text"]:
+                    overlapping_sids.append(sent["sentence_id"])
+            chunk["block_id"] = block["block_id"]
+            chunk["sentence_ids"] = overlapping_sids
+            chunk["block_type"] = block["block_type"]
+            chunk["section_number"] = block["section_number"]
+            chunk["chunk_index"] = global_idx
+            global_idx += 1
+            chunks.append(chunk)
 
     return chunks
 

@@ -279,6 +279,41 @@ def test_hybrid_retrieval():
     print(f"  [PASS] Hybrid retrieval: {len(results)} results with all score signals")
 
 
+def test_nupunkt_chunker():
+    """Validate nupunkt structural decomposition."""
+    from core.nupunkt_chunker import structural_decompose, nupunkt_available
+
+    sample_text = """14.3 Termination for Convenience. Either party may terminate this Agreement upon thirty (30) days' prior written notice to the other party.
+
+14.4 Effect of Termination. Upon termination, the Receiving Party shall return or destroy all Confidential Information. The obligations under Section 5 shall survive termination."""
+
+    blocks = structural_decompose(sample_text)
+    assert len(blocks) >= 1, f"Expected at least 1 block, got {len(blocks)}"
+
+    for block in blocks:
+        assert "block_id" in block, "Block missing block_id"
+        assert "sentences" in block, "Block missing sentences"
+        assert "text" in block, "Block missing text"
+        assert len(block["sentences"]) >= 1, f"Block has no sentences"
+
+    all_sentences = [s for b in blocks for s in b["sentences"]]
+    for sent in all_sentences:
+        assert "sentence_id" in sent, "Sentence missing sentence_id"
+        assert "text" in sent, "Sentence missing text"
+        assert len(sent["text"].strip()) > 0, "Empty sentence text"
+
+    sentence_texts = [s["text"] for s in all_sentences]
+    assert any("14.3" in s or "Termination for Convenience" in s for s in sentence_texts), \
+        "Section number 14.3 was incorrectly split"
+
+    print("  [PASS] nupunkt structural decomposition")
+    print(f"    Blocks: {len(blocks)}, Sentences: {len(all_sentences)}")
+    if nupunkt_available():
+        print("    Using nupunkt tokenizer")
+    else:
+        print("    Using regex fallback")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Validate Clustering V2 pipeline")
     parser.add_argument("--skip-llm", action="store_true", help="Skip tests requiring LLM API calls")
@@ -291,6 +326,7 @@ def main():
 
     tests = [
         ("Chunker", test_chunker),
+        ("nupunkt Chunker", test_nupunkt_chunker),
         ("Embedder", test_embedder),
         ("Clause Embedder (FIELD-110)", test_clause_embedder),
         ("Composite Engine", test_composite_engine),

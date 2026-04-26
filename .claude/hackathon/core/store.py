@@ -70,6 +70,13 @@ class ClusteringStore:
             )
         """)
 
+        # ── nupunkt structural metadata (Phase 1) ────────────────────────
+        try:
+            self.conn.execute("ALTER TABLE chunks ADD COLUMN IF NOT EXISTS block_id VARCHAR")
+            self.conn.execute("ALTER TABLE chunks ADD COLUMN IF NOT EXISTS sentence_ids VARCHAR")
+        except Exception:
+            pass  # Column already exists
+
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS clauses (
                 clause_id       VARCHAR PRIMARY KEY,
