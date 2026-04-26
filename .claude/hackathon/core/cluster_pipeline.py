@@ -847,7 +847,10 @@ def run_cluster_pipeline(
                 lance_dids.append(domain_id)
                 lance_clids.append(cr.get("topic_id", -1))
         if lance_cids:
-            lance_store.update_cluster_assignments(lance_cids, lance_dids, lance_clids)
+            try:
+                lance_store.update_cluster_assignments(lance_cids, lance_dids, lance_clids)
+            except Exception as e:
+                logger.warning(f"LanceDB cluster assignment update failed (non-fatal): {e}")
 
         n_micro = len(cluster_records)
         total_clusters += n_micro
