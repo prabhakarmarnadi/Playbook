@@ -41,15 +41,18 @@ from config import (
     MICRO_MIN_CLUSTER_SIZE, MICRO_MIN_SAMPLES,
     UMAP_N_NEIGHBORS, UMAP_N_COMPONENTS, UMAP_MIN_DIST,
     OPTIMIZE_TRIALS,
+    ENABLE_ARM_ENRICHMENT,
 )
 from core.pdf_parser import parse_pdf_directory, load_parsed_agreements, PARSED_TEXT_DIR
-from core.chunker import semantic_chunk, sliding_window_chunk, get_document_summary, SemanticChunkerConfig, extract_clause_header
+from core.chunker import semantic_chunk, sliding_window_chunk, get_document_summary, SemanticChunkerConfig, extract_clause_header, structural_chunk
 from core.nomic_embedder import NomicEmbedder
 from core.cuml_wrappers import cuml_available
 from core.lancedb_store import LanceVectorStore
 from core.store import ClusteringStore
 from core.topic_merger import HierarchicalTopicMerger
 from core.micro_clusterer import compute_cluster_quality
+from core.nupunkt_chunker import nupunkt_available
+from core.keybert_scorer import KeyBERTScorer, keybert_available
 
 logger = logging.getLogger(__name__)
 
@@ -896,14 +899,24 @@ def run_evoc_pipeline(
 
                 all_clauses.append(clause_rec)
     else:
-        progress("chunk", "Sliding window chunking (fast mode)...")
-        all_chunks = []
-        all_clauses = []
-        for agr in agreements:
-            chunks = sliding_window_chunk(agr["raw_text"])
-            for c in chunks:
-                c["agreement_id"] = agr["agreement_id"]
-            all_chunks.extend(chunks)
+        if nupunkt_available():
+            progress("chunk", "Structural chunking (nupunkt + sliding window)...")
+            all_chunks = []
+            all_clauses = []
+            for agr in agreements:
+                chunks = structural_chunk(agr["raw_text"])
+                for c in chunks:
+                    c["agreement_id"] = agr["agreement_id"]
+                all_chunks.extend(chunks)
+        else:
+            progress("chunk", "Sliding window chunking (fast mode)...")
+            all_chunks = []
+            all_clauses = []
+            for agr in agreements:
+                chunks = sliding_window_chunk(agr["raw_text"])
+                for c in chunks:
+                    c["agreement_id"] = agr["agreement_id"]
+                all_chunks.extend(chunks)
 
     progress("chunk", f"{len(all_chunks)} chunks from {len(agreements)} docs")
     stage_end("chunk")
@@ -919,6 +932,19 @@ def run_evoc_pipeline(
     # ══════════════════════════════════════════════════════════════════════
     stage_start("embed")
     chunk_texts = [c["text"] for c in all_chunks]
+
+    # ── KeyBERT text augmentation ──
+    keybert_scorer = None
+    if keybert_available():
+        try:
+            keybert_scorer = KeyBERTScorer.get_instance()
+            progress("embed", f"Augmenting {len(chunk_texts)} chunks with KeyBERT clause-type context...")
+            chunk_texts = keybert_scorer.batch_augment(chunk_texts)
+            progress("embed", f"KeyBERT augmentation applied ({len(keybert_scorer.clause_types)} clause types)")
+        except Exception as e:
+            logger.warning(f"KeyBERT augmentation failed, using raw text: {e}")
+            keybert_scorer = None
+
     chunk_ids = [c["chunk_id"] for c in all_chunks]
     chunk_agr_ids = [c["agreement_id"] for c in all_chunks]
 
@@ -1536,6 +1562,66 @@ def run_evoc_pipeline(
         raise ValueError(f"Unknown mode: {mode}. Use 'clause', 'macro-micro', or 'hybrid'.")
 
     # ══════════════════════════════════════════════════════════════════════
+    # ARM Enrichment (Pass 2)
+    # ══════════════════════════════════════════════════════════════════════
+    arm_result = {"n_rules": 0, "n_packages": 0}
+    if ENABLE_ARM_ENRICHMENT:
+        stage_start("arm")
+        progress("arm", "Mining clause association rules (FP-Growth)...")
+        try:
+            from core.relationship_layer import RelationshipLayer
+            from core.arm.arm_miner import mlxtend_available
+
+            if mlxtend_available():
+                relationship_layer = RelationshipLayer(store)
+
+                # Build clause assignments from cluster records
+                doc_clause_types: dict[str, list[str]] = {}
+                try:
+                    rows = store.conn.execute("""
+                        SELECT DISTINCT a.agreement_id, cl.label
+                        FROM cluster_assignments ca
+                        JOIN chunks ch ON ca.chunk_id = ch.chunk_id
+                        JOIN agreements a ON ch.agreement_id = a.agreement_id
+                        JOIN clusters cl ON ca.cluster_id = cl.cluster_id
+                    """).fetchall()
+                    for agr_id, label in rows:
+                        if agr_id not in doc_clause_types:
+                            doc_clause_types[agr_id] = []
+                        if label and label not in doc_clause_types[agr_id]:
+                            doc_clause_types[agr_id].append(label)
+                except Exception as e:
+                    logger.warning(f"Could not build clause assignments for ARM: {e}")
+
+                if doc_clause_types:
+                    relationship_layer.mine_from_assignments(
+                        doc_clause_types, pipeline_run_id=run_id
+                    )
+                    rules = relationship_layer._load_rules()
+                    packages = relationship_layer.get_term_packages()
+                    arm_result = {"n_rules": len(rules), "n_packages": len(packages)}
+                    progress("arm", f"ARM: {len(rules)} rules, {len(packages)} term packages")
+
+                    # Save ARM artifacts
+                    import json as _json
+                    arm_rules_path = run_dir / "arm_rules.json"
+                    arm_packages_path = run_dir / "term_packages.json"
+                    with open(arm_rules_path, "w") as f:
+                        _json.dump(rules, f, indent=2, default=str)
+                    with open(arm_packages_path, "w") as f:
+                        _json.dump(packages, f, indent=2, default=str)
+                else:
+                    progress("arm", "No clause assignments to mine")
+            else:
+                progress("arm", "Skipped (mlxtend not installed)")
+        except Exception as e:
+            logger.error(f"ARM enrichment failed: {e}")
+            progress("arm", f"Failed: {e}")
+        stage_end("arm")
+    else:
+        progress("arm", "Skipped (ENABLE_ARM_ENRICHMENT=false)")
+
+    # ══════════════════════════════════════════════════════════════════════
     # Stage 5: Field Discovery (Azure OpenAI)
     # ══════════════════════════════════════════════════════════════════════
     field_discovery_result = {"total_fields": 0, "total_extractions": 0}
@@ -1744,6 +1830,7 @@ def run_evoc_pipeline(
         "fields_path": str(run_dir / "fields.json"),
         "chunks_path": str(run_dir / "chunks.json"),
         "field_discovery": field_discovery_result,
+        "arm_enrichment": arm_result,
         "intent_extraction": intent_result,
         "knowledge_graph": kg_result,
         "stats": stats,
