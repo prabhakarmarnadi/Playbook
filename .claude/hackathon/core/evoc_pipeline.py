@@ -1564,6 +1564,7 @@ def run_evoc_pipeline(
     # ══════════════════════════════════════════════════════════════════════
     # ARM Enrichment (Pass 2)
     # ══════════════════════════════════════════════════════════════════════
+    relationship_layer = None
     arm_result = {"n_rules": 0, "n_packages": 0}
     if ENABLE_ARM_ENRICHMENT:
         stage_start("arm")
@@ -1642,6 +1643,7 @@ def run_evoc_pipeline(
                 max_extraction_workers=5,
                 min_confidence=0.5,
                 use_rlm=use_rlm,
+                relationship_layer=relationship_layer,
             )
         except Exception as e:
             logger.error(f"Field discovery failed: {e}")

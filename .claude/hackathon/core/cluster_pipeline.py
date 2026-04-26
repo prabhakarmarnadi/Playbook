@@ -906,6 +906,7 @@ def run_cluster_pipeline(
     # ══════════════════════════════════════════════════════════════════════
     # Stage 5.5: ARM Enrichment (Pass 2)
     # ══════════════════════════════════════════════════════════════════════
+    relationship_layer = None
     arm_result = {"n_rules": 0, "n_packages": 0}
     if ENABLE_ARM_ENRICHMENT:
         stage_start("arm")
@@ -986,6 +987,7 @@ def run_cluster_pipeline(
                 progress_fn=progress, extract_values=True,
                 min_cluster_chunks=5,
                 use_rlm=use_rlm,
+                relationship_layer=relationship_layer,
             )
         except Exception as e:
             logger.error(f"Field discovery failed: {e}")

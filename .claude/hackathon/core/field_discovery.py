@@ -230,6 +230,7 @@ def discover_fields_for_cluster(
     client, deployment: str,
     cluster_label: str, keywords: list[str],
     chunk_texts: list[str], config: FieldDiscoveryConfig,
+    arm_context: dict | None = None,
 ) -> list[dict]:
     """Discover fields in a cluster's chunks. Returns list of {name, type, description, examples}."""
     sample = chunk_texts[:config.max_sample_chunks]
@@ -237,12 +238,26 @@ def discover_fields_for_cluster(
         f"[Excerpt {i+1}]\n{text[:1500]}" for i, text in enumerate(sample)
     )
 
-    prompt = FIELD_DISCOVERY_PROMPT.format(
-        cluster_label=cluster_label,
-        keywords=", ".join(keywords[:10]),
-        chunks_text=chunks_text,
-        max_fields=config.max_fields_per_cluster,
-    )
+    # Use ARM-augmented prompt if relationship context is available
+    if arm_context and arm_context.get("related_clauses") != "No relationship data available.":
+        arm_section = (
+            f"\n## Related Clause Types\n{arm_context['related_clauses']}\n"
+            f"\n## Known Field Correlations\n{arm_context['field_correlations']}\n"
+            f"\n## Term Packages\n{arm_context['term_packages']}\n"
+        )
+        prompt = FIELD_DISCOVERY_PROMPT.format(
+            cluster_label=cluster_label,
+            keywords=", ".join(keywords[:10]),
+            chunks_text=chunks_text,
+            max_fields=config.max_fields_per_cluster,
+        ) + arm_section + "\nConsider cross-clause fields from the related types above."
+    else:
+        prompt = FIELD_DISCOVERY_PROMPT.format(
+            cluster_label=cluster_label,
+            keywords=", ".join(keywords[:10]),
+            chunks_text=chunks_text,
+            max_fields=config.max_fields_per_cluster,
+        )
 
     parsed = _call_azure(client, deployment, prompt, config)
     if not parsed:
@@ -809,6 +824,7 @@ def extract_fields_from_chunk(
     cluster_label: str, chunk_text: str,
     fields: list[dict], config: FieldDiscoveryConfig,
     rlm_context: dict | None = None,
+    relationship_layer=None,
 ) -> dict[str, tuple[str | None, float]]:
     """Extract field values from a single chunk. Returns {field_name: (value, confidence)}."""
     # Build enhanced schema with examples when available
@@ -849,10 +865,24 @@ def extract_fields_from_chunk(
         if parts:
             rlm_context_section = "\n".join(parts) + "\n"
 
-    if rlm_context or any(f.get('examples') for f in fields):
+    # Build ARM extraction context if available
+    arm_extraction_section = ""
+    if relationship_layer:
+        try:
+            from core.extractor import _build_extraction_arm_context
+            ext_ctx = _build_extraction_arm_context(cluster_label, relationship_layer)
+            if ext_ctx.get("cross_clause_fields") != "None.":
+                arm_extraction_section = (
+                    f"\nCross-clause fields to check for:\n{ext_ctx['cross_clause_fields']}\n"
+                    f"\nField correlations (validation hints):\n{ext_ctx['field_correlations']}\n"
+                )
+        except Exception:
+            pass
+
+    if rlm_context or arm_extraction_section or any(f.get('examples') for f in fields):
         prompt = FIELD_EXTRACTION_PROMPT_ENHANCED.format(
             cluster_label=cluster_label,
-            rlm_context_section=rlm_context_section,
+            rlm_context_section=rlm_context_section + arm_extraction_section,
             chunk_text=chunk_text[:4000],
             fields_schema=fields_schema,
         )
@@ -905,6 +935,7 @@ def run_field_discovery(
     max_extraction_workers: int = 5,
     min_confidence: float = 0.5,
     use_rlm: bool | str = False,
+    relationship_layer=None,
 ) -> dict:
     """
     Run field discovery across all clusters in the store.
@@ -947,6 +978,9 @@ def run_field_discovery(
         except json.JSONDecodeError:
             keywords = []
 
+        # Build ARM relationship context for this cluster
+        arm_context = _build_arm_context(cluster_label, relationship_layer)
+
         chunk_rows = store.conn.execute("""
             SELECT ch.chunk_id, ch.chunk_text, ch.agreement_id
             FROM chunks ch
@@ -981,10 +1015,12 @@ def run_field_discovery(
                 logger.info(f"    RLM returned no fields, falling back to standard")
                 fields = discover_fields_for_cluster(
                     client, deployment, cluster_label, keywords, chunk_texts, config,
+                    arm_context=arm_context,
                 )
         else:
             fields = discover_fields_for_cluster(
                 client, deployment, cluster_label, keywords, chunk_texts, config,
+                arm_context=arm_context,
             )
         if not fields:
             progress("field_discovery", f"    No fields discovered")
@@ -1016,6 +1052,7 @@ def run_field_discovery(
                 return chunk_row, extract_fields_from_chunk(
                     client, deployment, cluster_label,
                     chunk_row["chunk_text"], fields, config,
+                    relationship_layer=relationship_layer,
                 )
 
             with ThreadPoolExecutor(max_workers=max_extraction_workers) as pool:
