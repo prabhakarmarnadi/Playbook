@@ -344,6 +344,91 @@ def test_keybert_scorer():
     print(f"    Augmented prefix: {augmented[:60]}...")
 
 
+def test_arm_miner():
+    """Validate ARM mining on synthetic data."""
+    from core.arm.arm_miner import (
+        build_clause_presence_matrix,
+        discover_term_packages,
+        mine_global,
+        mlxtend_available,
+    )
+
+    if not mlxtend_available():
+        print("  [SKIP] mlxtend not installed — ARM mining unavailable")
+        return
+
+    import random
+    random.seed(42)
+    assignments = {}
+    for i in range(100):
+        present = []
+        if random.random() < 0.7:
+            present.extend(["Termination", "Notice"])
+        if random.random() < 0.5:
+            present.append("Confidentiality")
+        if random.random() < 0.3:
+            present.append("Indemnification")
+        if random.random() < 0.2:
+            present.append("IP Rights")
+        if present:
+            assignments[f"doc_{i}"] = present
+
+    matrix = build_clause_presence_matrix(assignments)
+    assert not matrix.empty, "Matrix should not be empty"
+    assert matrix.shape[0] >= 50, f"Expected >= 50 docs, got {matrix.shape[0]}"
+
+    rules = mine_global(matrix, config={"min_support": 0.15, "min_confidence": 0.5, "min_lift": 1.0})
+    assert isinstance(rules, list), "Rules should be a list"
+
+    packages = discover_term_packages(matrix, config={"min_support": 0.10, "min_itemset_size": 2})
+    assert isinstance(packages, list), "Packages should be a list"
+
+    print(f"  [PASS] ARM mining")
+    print(f"    Matrix: {matrix.shape}, Rules: {len(rules)}, Packages: {len(packages)}")
+
+
+def test_relationship_layer():
+    """Validate RelationshipLayer end-to-end: mine -> persist -> query."""
+    from core.arm.arm_miner import mlxtend_available
+
+    if not mlxtend_available():
+        print("  [SKIP] mlxtend not installed")
+        return
+
+    import tempfile
+    from core.store import ClusteringStore
+    from core.relationship_layer import RelationshipLayer
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb", delete=True) as tmp:
+        store = ClusteringStore(tmp.name)
+        layer = RelationshipLayer(store)
+
+        import random
+        random.seed(42)
+        assignments = {}
+        for i in range(100):
+            present = []
+            if random.random() < 0.7:
+                present.extend(["Termination", "Notice"])
+            if random.random() < 0.5:
+                present.append("Confidentiality")
+            if random.random() < 0.3:
+                present.append("Indemnification")
+            if present:
+                assignments[f"doc_{i}"] = present
+
+        layer.mine_from_assignments(assignments, pipeline_run_id="test_run")
+
+        related = layer.get_related_clause_types("Termination")
+        packages = layer.get_term_packages()
+
+        assert isinstance(related, list), "Related should be a list"
+        assert isinstance(packages, list), "Packages should be a list"
+
+        print(f"  [PASS] RelationshipLayer")
+        print(f"    Related to 'Termination': {len(related)}, Packages: {len(packages)}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Validate Clustering V2 pipeline")
     parser.add_argument("--skip-llm", action="store_true", help="Skip tests requiring LLM API calls")
@@ -365,6 +450,8 @@ def main():
         ("DuckDB Store", test_store),
         ("Hybrid Retrieval", test_hybrid_retrieval),
         ("KeyBERT Scorer", test_keybert_scorer),
+        ("ARM Miner", test_arm_miner),
+        ("Relationship Layer", test_relationship_layer),
     ]
 
     passed, failed = 0, 0

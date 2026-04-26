@@ -371,6 +371,31 @@ class ClusteringStore:
             )
         """)
 
+        # ── ARM tables (Phase 3) ─────────────────────────────────────────
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS arm_rules (
+                rule_id          VARCHAR PRIMARY KEY,
+                antecedent       VARCHAR NOT NULL,
+                consequent       VARCHAR NOT NULL,
+                rule_type        VARCHAR NOT NULL,
+                support          DOUBLE,
+                confidence       DOUBLE,
+                lift             DOUBLE,
+                cluster_id       VARCHAR,
+                pipeline_run_id  VARCHAR
+            )
+        """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS arm_term_packages (
+                package_id       VARCHAR PRIMARY KEY,
+                clause_types     VARCHAR NOT NULL,
+                support          DOUBLE,
+                size             INTEGER,
+                cluster_id       VARCHAR,
+                pipeline_run_id  VARCHAR
+            )
+        """)
+
     # ── Serialization helpers ──────────────────────────────────────────────────
 
     @staticmethod
