@@ -46,6 +46,10 @@ from core.lancedb_store import LanceVectorStore
 from core.store import ClusteringStore
 from core.topic_merger import HierarchicalTopicMerger
 from core.micro_clusterer import compute_cluster_quality
+from core.nupunkt_chunker import nupunkt_available
+from core.chunker import structural_chunk
+from core.keybert_scorer import KeyBERTScorer, keybert_available
+from config import KEYBERT_UMAP_TARGET_WEIGHT, KEYBERT_PRIOR_WEIGHT, ENABLE_ARM_ENRICHMENT
 
 logger = logging.getLogger(__name__)
 
@@ -425,13 +429,22 @@ def run_cluster_pipeline(
                     })
                     chunk_idx += 1
     else:
-        progress("chunk", "Sliding window chunking (fast mode)...")
-        all_chunks = []
-        for agr in agreements:
-            chunks = sliding_window_chunk(agr["raw_text"])
-            for c in chunks:
-                c["agreement_id"] = agr["agreement_id"]
-            all_chunks.extend(chunks)
+        if nupunkt_available():
+            progress("chunk", "Structural chunking (nupunkt + sliding window)...")
+            all_chunks = []
+            for agr in agreements:
+                chunks = structural_chunk(agr["raw_text"])
+                for c in chunks:
+                    c["agreement_id"] = agr["agreement_id"]
+                all_chunks.extend(chunks)
+        else:
+            progress("chunk", "Sliding window chunking (fast mode)...")
+            all_chunks = []
+            for agr in agreements:
+                chunks = sliding_window_chunk(agr["raw_text"])
+                for c in chunks:
+                    c["agreement_id"] = agr["agreement_id"]
+                all_chunks.extend(chunks)
 
     progress("chunk", f"{len(all_chunks)} chunks from {len(agreements)} docs")
     stage_end("chunk")
@@ -448,6 +461,19 @@ def run_cluster_pipeline(
     # ══════════════════════════════════════════════════════════════════════
     stage_start("embed")
     chunk_texts = [c["text"] for c in all_chunks]
+
+    # ── KeyBERT text augmentation ──
+    keybert_scorer = None
+    if keybert_available():
+        try:
+            keybert_scorer = KeyBERTScorer.get_instance()
+            progress("embed", f"Augmenting {len(chunk_texts)} chunks with KeyBERT clause-type context...")
+            chunk_texts = keybert_scorer.batch_augment(chunk_texts)
+            progress("embed", f"KeyBERT augmentation applied ({len(keybert_scorer.clause_types)} clause types)")
+        except Exception as e:
+            logger.warning(f"KeyBERT augmentation failed, using raw text: {e}")
+            keybert_scorer = None
+
     chunk_ids = [c["chunk_id"] for c in all_chunks]
     chunk_agr_ids = [c["agreement_id"] for c in all_chunks]
 
@@ -551,10 +577,17 @@ def run_cluster_pipeline(
             conf = float(np.dot(summary_embeddings[i], centroid))
             store.update_agreement_domain(agreements[i]["agreement_id"], domain_id, conf)
     else:
+        # ── Semi-supervised UMAP with KeyBERT labels ──
+        macro_target_weight = 0.0
+        if keybert_scorer and KEYBERT_UMAP_TARGET_WEIGHT > 0:
+            macro_target_weight = KEYBERT_UMAP_TARGET_WEIGHT
+            progress("macro", f"Using semi-supervised UMAP (target_weight={macro_target_weight})")
+
         macro_umap = make_umap(
             n_neighbors=min(15, n_docs - 1),
             n_components=min(5, max(2, n_docs - 2)),
             min_dist=0.0, metric="cosine",
+            target_weight=macro_target_weight,
         )
         macro_hdbscan = make_hdbscan(
             min_cluster_size=max(MACRO_MIN_CLUSTER_SIZE, max(3, n_docs // 50)),
@@ -581,7 +614,14 @@ def run_cluster_pipeline(
             nr_topics="auto" if n_docs >= 50 else None,
             calculate_probabilities=_calc_probs, verbose=False,
         )
-        macro_topics, _ = macro_model.fit_transform(summaries, summary_embeddings)
+        # Semi-supervised: pass KeyBERT labels as y if available
+        macro_y = None
+        if keybert_scorer and macro_target_weight > 0:
+            macro_y = keybert_scorer.batch_labels(summaries)
+            n_labeled = int((macro_y >= 0).sum())
+            progress("macro", f"Semi-supervised: {n_labeled}/{len(summaries)} docs labeled by KeyBERT")
+
+        macro_topics, _ = macro_model.fit_transform(summaries, summary_embeddings, y=macro_y)
 
         # Save macro model
         _save_model(macro_model, run_dir, "macro_model")
@@ -683,10 +723,12 @@ def run_cluster_pipeline(
             n_neighbors = min(int(best_params.get("umap_n_neighbors", UMAP_N_NEIGHBORS)), n - 1)
             n_components = max(2, min(int(best_params.get("umap_n_components", UMAP_N_COMPONENTS)), n - 2, n_neighbors - 1))
 
+            micro_target_weight = KEYBERT_UMAP_TARGET_WEIGHT if keybert_scorer else 0.0
             micro_umap = make_umap(
                 n_neighbors=n_neighbors, n_components=n_components,
                 min_dist=float(best_params.get("umap_min_dist", UMAP_MIN_DIST)),
                 metric="cosine",
+                target_weight=micro_target_weight,
             )
             micro_hdbscan = make_hdbscan(
                 min_cluster_size=max(2, int(best_params.get("hdbscan_min_cluster_size", MICRO_MIN_CLUSTER_SIZE))),
@@ -698,9 +740,11 @@ def run_cluster_pipeline(
             n_neighbors = min(UMAP_N_NEIGHBORS, n - 1)
             n_components = max(2, min(UMAP_N_COMPONENTS, n - 2, n_neighbors - 1))
 
+            micro_target_weight = KEYBERT_UMAP_TARGET_WEIGHT if keybert_scorer else 0.0
             micro_umap = make_umap(
                 n_neighbors=n_neighbors, n_components=n_components,
                 min_dist=UMAP_MIN_DIST, metric="cosine",
+                target_weight=micro_target_weight,
             )
             min_cs = max(MICRO_MIN_CLUSTER_SIZE, max(2, n // 20))
             micro_hdbscan = make_hdbscan(
@@ -727,7 +771,12 @@ def run_cluster_pipeline(
             ctfidf_model=micro_ctfidf,
             calculate_probabilities=_calc_probs, verbose=False,
         )
-        micro_topics, _ = micro_model.fit_transform(d_texts, d_embs)
+        # Semi-supervised: pass KeyBERT labels for micro clustering
+        micro_y = None
+        if keybert_scorer and micro_target_weight > 0:
+            micro_y = keybert_scorer.batch_labels(d_texts)
+
+        micro_topics, _ = micro_model.fit_transform(d_texts, d_embs, y=micro_y)
 
         # Outlier reduction (legacy: c-TF-IDF strategy, threshold=0.3)
         if -1 in micro_topics:
@@ -855,6 +904,72 @@ def run_cluster_pipeline(
     store.update_run(run_id, "micro_complete")
 
     # ══════════════════════════════════════════════════════════════════════
+    # Stage 5.5: ARM Enrichment (Pass 2)
+    # ══════════════════════════════════════════════════════════════════════
+    arm_result = {"n_rules": 0, "n_packages": 0}
+    if ENABLE_ARM_ENRICHMENT:
+        stage_start("arm")
+        progress("arm", "Mining clause association rules (FP-Growth)...")
+        try:
+            from core.relationship_layer import RelationshipLayer
+            from core.arm.arm_miner import mlxtend_available
+
+            if mlxtend_available():
+                relationship_layer = RelationshipLayer(store)
+
+                # Build clause assignments: {doc_id: [clause_types]}
+                # Each document's clusters represent its clause types
+                doc_clause_types: dict[str, list[str]] = {}
+                for topic_id, dr in domain_map.items():
+                    if topic_id == -1:
+                        continue
+                    domain_agr_ids = set(agreements[i]["agreement_id"] for i in dr["agreement_indices"])
+                    domain_chunk_idx = [
+                        i for i, c in enumerate(all_chunks) if c["agreement_id"] in domain_agr_ids
+                    ]
+                    # Get cluster labels for chunks in this domain
+                    for cr in quality_report["domains"].get(dr["domain_id"], {}).get("clusters", []):
+                        clause_label = cr.get("label", "Unknown")
+                        # Find which agreements have chunks in this cluster
+                        for c in all_chunks:
+                            if c["agreement_id"] in domain_agr_ids:
+                                doc_id = c["agreement_id"]
+                                if doc_id not in doc_clause_types:
+                                    doc_clause_types[doc_id] = []
+                                if clause_label not in doc_clause_types[doc_id]:
+                                    doc_clause_types[doc_id].append(clause_label)
+
+                if doc_clause_types:
+                    relationship_layer.mine_from_assignments(
+                        doc_clause_types, pipeline_run_id=run_id
+                    )
+
+                    # Count results
+                    rules = relationship_layer._load_rules()
+                    packages = relationship_layer.get_term_packages()
+                    arm_result = {"n_rules": len(rules), "n_packages": len(packages)}
+                    progress("arm", f"ARM: {len(rules)} rules, {len(packages)} term packages")
+
+                    # Save ARM artifacts
+                    import json as _json
+                    arm_rules_path = run_dir / "arm_rules.json"
+                    arm_packages_path = run_dir / "term_packages.json"
+                    with open(arm_rules_path, "w") as f:
+                        _json.dump(rules, f, indent=2, default=str)
+                    with open(arm_packages_path, "w") as f:
+                        _json.dump(packages, f, indent=2, default=str)
+                else:
+                    progress("arm", "No clause assignments to mine")
+            else:
+                progress("arm", "Skipped (mlxtend not installed)")
+        except Exception as e:
+            logger.error(f"ARM enrichment failed: {e}")
+            progress("arm", f"Failed: {e}")
+        stage_end("arm")
+    else:
+        progress("arm", "Skipped (ENABLE_ARM_ENRICHMENT=false)")
+
+    # ══════════════════════════════════════════════════════════════════════
     # Stage 6: Field Discovery (Azure OpenAI)
     # ══════════════════════════════════════════════════════════════════════
     field_discovery_result = {"total_fields": 0, "total_extractions": 0}
@@ -909,6 +1024,7 @@ def run_cluster_pipeline(
         "embeddings_path": str(run_dir / "embeddings.npz"),
         "quality_report_path": str(run_dir / "cluster_quality.json"),
         "field_discovery": field_discovery_result,
+        "arm_enrichment": arm_result,
         "stats": stats,
     }
     _save_manifest(run_dir, manifest)
