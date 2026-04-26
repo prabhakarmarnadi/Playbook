@@ -448,6 +448,9 @@ data/artifacts/<account_id>/<run_id>/
 ## 10. Commit History
 
 ```
+7e58e9f feat: wire nupunkt, KeyBERT augmentation, and ARM into evoc_pipeline.py
+3a4fe44 feat: wire nupunkt, KeyBERT, and ARM into cluster_pipeline.py
+7b6fece docs: add implementation and design document for KeyBERT+ARM+nupunkt integration
 af6c11b feat: add ARM-augmented prompts, downstream consumer integration, and Phase 4 validation
 0a562cb feat: add ARM mining module and RelationshipLayer
 f9eacf9 feat: add KeyBERT scorer, semi-supervised UMAP, and confidence bias integration
@@ -457,14 +460,38 @@ f9eacf9 feat: add KeyBERT scorer, semi-supervised UMAP, and confidence bias inte
 
 ---
 
-## 11. Next Steps
+## 11. Pipeline Wiring (Completed)
 
-The integration is complete at the component level. The remaining work to wire it end-to-end in the pipeline orchestrators:
+### cluster_pipeline.py (134 lines added)
 
-1. **Wire Pass 1 into cluster_pipeline.py / evoc_pipeline.py:** Call `structural_chunk()` instead of `sliding_window_chunk()`, call `KeyBERTScorer.batch_augment()` before embedding, pass `batch_labels()` as UMAP target.
+| Stage           | What was wired                                                                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stage 2 (Chunk) | `nupunkt_available()` guard: uses `structural_chunk()` when available, falls back to `sliding_window_chunk()`                                                                     |
+| Stage 3 (Embed) | `KeyBERTScorer.batch_augment(chunk_texts)` runs before embedding, replacing raw text with clause-type-prefixed text                                                               |
+| Stage 4 (Macro) | `make_umap(target_weight=KEYBERT_UMAP_TARGET_WEIGHT)` enables semi-supervised UMAP; `batch_labels(summaries)` passed as `y=` to `fit_transform`                                   |
+| Stage 5 (Micro) | Same semi-supervised UMAP pattern per domain, both optimized and small-domain paths                                                                                               |
+| Stage 5.5 (ARM) | New stage after micro-clustering: builds `doc_clause_types` from quality report, calls `RelationshipLayer.mine_from_assignments()`, saves `arm_rules.json` + `term_packages.json` |
+| Manifest        | `arm_enrichment` field added                                                                                                                                                      |
 
-2. **Wire Pass 2:** After clustering completes, call `RelationshipLayer.mine_from_assignments()`, then pass the layer to field discovery and extraction.
+### evoc_pipeline.py (105 lines added)
 
-3. **Evaluate:** Run the eval harness (`python -m eval.runner`) before and after to measure clustering quality impact (silhouette, coherence, DBCV).
+| Stage           | What was wired                                                                                                                                                             |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stage 2 (Chunk) | Same nupunkt guard as cluster_pipeline                                                                                                                                     |
+| Stage 3 (Embed) | Same KeyBERT batch_augment pattern                                                                                                                                         |
+| ARM stage       | Queries DuckDB directly (`cluster_assignments -> chunks -> agreements -> clusters`) since EVoC's internal tracking differs. Same `mine_from_assignments` + artifact saving |
+| Manifest        | `arm_enrichment` field added                                                                                                                                               |
 
-4. **Tune:** Adjust `KEYBERT_UMAP_TARGET_WEIGHT` (currently 0.3) and `KEYBERT_PRIOR_WEIGHT` (currently 0.15) based on eval results.
+**Note:** EVoC does not use UMAP, so no semi-supervised UMAP wiring for evoc_pipeline.py.
+
+---
+
+## 12. Remaining Work
+
+1. **Evaluate:** Run the eval harness (`python -m eval.runner`) before and after to measure clustering quality impact (silhouette, coherence, DBCV).
+
+2. **Tune:** Adjust `KEYBERT_UMAP_TARGET_WEIGHT` (currently 0.3) and `KEYBERT_PRIOR_WEIGHT` (currently 0.15) based on eval results.
+
+3. **KeyBERT confidence bias wiring:** The `cluster_assigner.py` now has `load_keybert_priors()` — call it from the pipeline orchestrators when using incremental assignment mode.
+
+4. **ARM -> field discovery wiring:** Pass the `RelationshipLayer` instance to `run_field_discovery()` so it can call `_build_arm_context()` with real data instead of the fallback strings.
