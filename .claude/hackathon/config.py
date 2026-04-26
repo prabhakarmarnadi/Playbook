@@ -97,6 +97,24 @@ HIGH_CONFIDENCE_THRESHOLD = float(os.getenv("HIGH_CONFIDENCE_THRESHOLD", "0.85")
 TENTATIVE_THRESHOLD = float(os.getenv("TENTATIVE_THRESHOLD", "0.60"))
 NOVEL_BUFFER_SIZE = int(os.getenv("NOVEL_BUFFER_SIZE", "500"))
 
+# ── KeyBERT Clause Fingerprinting ────────────────────────────────────────────
+KEYBERT_FINGERPRINTS_PATH = Path(os.getenv(
+    "KEYBERT_FINGERPRINTS_PATH", str(DATA_DIR / "models" / "clause_fingerprints.json")
+))
+KEYBERT_CLASSIFICATION_THRESHOLD = float(os.getenv("KEYBERT_CLASSIFICATION_THRESHOLD", "0.3"))
+KEYBERT_UMAP_TARGET_WEIGHT = float(os.getenv("KEYBERT_UMAP_TARGET_WEIGHT", "0.3"))
+KEYBERT_PRIOR_WEIGHT = float(os.getenv("KEYBERT_PRIOR_WEIGHT", "0.15"))
+KEYBERT_AUGMENT_TOP_K = int(os.getenv("KEYBERT_AUGMENT_TOP_K", "3"))
+
+# ── Association Rule Mining (ARM) ────────────────────────────────────────────
+ENABLE_ARM_ENRICHMENT = os.getenv("ENABLE_ARM_ENRICHMENT", "true").lower() in ("1", "true", "yes")
+ARM_MIN_SUPPORT = float(os.getenv("ARM_MIN_SUPPORT", "0.20"))
+ARM_MIN_CONFIDENCE = float(os.getenv("ARM_MIN_CONFIDENCE", "0.7"))
+ARM_MIN_LIFT = float(os.getenv("ARM_MIN_LIFT", "1.8"))
+FIELD_ARM_MIN_SUPPORT = float(os.getenv("FIELD_ARM_MIN_SUPPORT", "0.05"))
+FIELD_ARM_MIN_CONFIDENCE = float(os.getenv("FIELD_ARM_MIN_CONFIDENCE", "0.5"))
+FIELD_ARM_MIN_LIFT = float(os.getenv("FIELD_ARM_MIN_LIFT", "1.5"))
+
 # ── Retrieval ──────────────────────────────────────────────────────────────────
 SEARCH_TOP_K = int(os.getenv("SEARCH_TOP_K", "20"))
 RRF_K = int(os.getenv("RRF_K", "60"))  # RRF constant

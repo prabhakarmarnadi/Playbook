@@ -30,6 +30,7 @@ import numpy as np
 
 from config import (
     HIGH_CONFIDENCE_THRESHOLD, TENTATIVE_THRESHOLD, NOVEL_BUFFER_SIZE,
+    KEYBERT_PRIOR_WEIGHT,
 )
 from core.embedder import Embedder
 
@@ -132,11 +133,22 @@ class IncrementalClusterAssigner:
 
         soft_memberships = {}
 
-        if best_sim >= self.high_threshold:
+        # ── Apply KeyBERT prior if available ──
+        keybert_adjustment = 0.0
+        if hasattr(self, '_keybert_priors') and self._keybert_priors and best_id:
+            cluster_clause_type = self._keybert_priors.get(best_id)
+            if cluster_clause_type and hasattr(self, '_keybert_scorer') and self._keybert_scorer:
+                scores = self._keybert_scorer.score_all(text)
+                alignment = scores.get(cluster_clause_type, 0.5)
+                keybert_adjustment = (alignment - 0.5) * KEYBERT_PRIOR_WEIGHT
+
+        adjusted_sim = best_sim + keybert_adjustment
+
+        if adjusted_sim >= self.high_threshold:
             # ── Tier A: Hard assign + centroid update ──
             assignment_type = AssignmentType.HIGH_CONFIDENCE
             self._update_centroid(best_id, doc_embedding)
-        elif best_sim >= self.tentative_threshold:
+        elif adjusted_sim >= self.tentative_threshold:
             # ── Tier B: Soft assign with top-K memberships ──
             assignment_type = AssignmentType.TENTATIVE
             soft_memberships = self._compute_soft_memberships(similarities)
@@ -160,13 +172,13 @@ class IncrementalClusterAssigner:
         self._assignment_log.append({
             "doc_id": doc_id,
             "cluster_id": best_id,
-            "confidence": best_sim,
+            "confidence": adjusted_sim,
             "assignment_type": assignment_type.value,
         })
 
         return {
             "cluster_id": best_id,
-            "confidence": best_sim,
+            "confidence": adjusted_sim,
             "assignment_type": assignment_type,
             "top_matches": top_matches,
             "soft_memberships": soft_memberships,
@@ -203,6 +215,20 @@ class IncrementalClusterAssigner:
             new_centroid = new_centroid / norm
         self.cluster_centroids[cluster_id] = new_centroid
         self.cluster_counts[cluster_id] = n + 1
+
+    def load_keybert_priors(
+        self, cluster_clause_types: dict[str, str], scorer=None
+    ) -> None:
+        """Load KeyBERT dominant clause types per cluster for confidence bias."""
+        self._keybert_priors = cluster_clause_types
+        if scorer:
+            self._keybert_scorer = scorer
+        else:
+            try:
+                from core.keybert_scorer import KeyBERTScorer
+                self._keybert_scorer = KeyBERTScorer.get_instance()
+            except Exception:
+                self._keybert_scorer = None
 
     def get_buffer_size(self) -> int:
         return len(self.novel_buffer)

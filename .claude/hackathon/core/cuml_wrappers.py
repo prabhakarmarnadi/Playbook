@@ -154,13 +154,23 @@ def make_umap(
     min_dist: float = 0.0,
     metric: str = "cosine",
     random_state: int = 42,
+    target: np.ndarray | None = None,
+    target_weight: float = 0.0,
     **kwargs: Any,
 ):
     """Factory: create a GPU or CPU UMAP model.
 
     When cuML is available, returns the native cuML UMAP directly
     so BERTopic's isinstance checks pass correctly.
+
+    Semi-supervised support: when target_weight > 0, UMAP uses labels
+    to guide dimensionality reduction. Labels of -1 are unlabeled.
     """
+    ss_kwargs = {}
+    if target is not None and target_weight > 0.0:
+        ss_kwargs["target_metric"] = "categorical"
+        ss_kwargs["target_weight"] = target_weight
+
     if _CUML_AVAILABLE:
         return cuUMAP(
             n_neighbors=n_neighbors,
@@ -168,6 +178,7 @@ def make_umap(
             min_dist=min_dist,
             metric=metric,
             random_state=random_state,
+            **ss_kwargs,
             **kwargs,
         )
     from umap import UMAP as cpuUMAP
@@ -177,6 +188,7 @@ def make_umap(
         min_dist=min_dist,
         metric=metric,
         random_state=random_state,
+        **ss_kwargs,
         **kwargs,
     )
 

@@ -314,6 +314,36 @@ def test_nupunkt_chunker():
         print("    Using regex fallback")
 
 
+def test_keybert_scorer():
+    """Validate KeyBERT clause scoring and text augmentation."""
+    from core.keybert_scorer import KeyBERTScorer, keybert_available
+
+    scorer = KeyBERTScorer()
+
+    if not keybert_available():
+        print("  [SKIP] KeyBERT fingerprints not found — scorer degrades gracefully")
+        return
+
+    text = "The receiving party shall not disclose any confidential information."
+    scores = scorer.classify(text)
+    assert isinstance(scores, list), f"Expected list, got {type(scores)}"
+    if scores:
+        clause_type, similarity = scores[0]
+        assert isinstance(clause_type, str), "Clause type should be string"
+        assert 0.0 <= similarity <= 1.0, f"Similarity {similarity} out of range"
+
+    augmented = scorer.augment_text(text)
+    assert isinstance(augmented, str), "Augmented text should be string"
+    assert text in augmented, "Original text should be preserved in augmentation"
+
+    label = scorer.get_label(text)
+    assert label is None or isinstance(label, int), "Label should be int or None"
+
+    print("  [PASS] KeyBERT scorer")
+    print(f"    Top classification: {scores[0] if scores else 'none'}")
+    print(f"    Augmented prefix: {augmented[:60]}...")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Validate Clustering V2 pipeline")
     parser.add_argument("--skip-llm", action="store_true", help="Skip tests requiring LLM API calls")
@@ -334,6 +364,7 @@ def main():
         ("Incremental Assigner (FIELD-801)", test_incremental_assigner),
         ("DuckDB Store", test_store),
         ("Hybrid Retrieval", test_hybrid_retrieval),
+        ("KeyBERT Scorer", test_keybert_scorer),
     ]
 
     passed, failed = 0, 0

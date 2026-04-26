@@ -77,6 +77,18 @@ class ClusteringStore:
         except Exception:
             pass  # Column already exists
 
+        # ── KeyBERT clause-type metadata (Phase 2) ───────────────────────
+        try:
+            self.conn.execute("ALTER TABLE clusters ADD COLUMN IF NOT EXISTS dominant_clause_type VARCHAR")
+            self.conn.execute("ALTER TABLE clusters ADD COLUMN IF NOT EXISTS clause_type_distribution VARCHAR")
+        except Exception:
+            pass
+        try:
+            self.conn.execute("ALTER TABLE chunks ADD COLUMN IF NOT EXISTS keybert_scores VARCHAR")
+            self.conn.execute("ALTER TABLE chunks ADD COLUMN IF NOT EXISTS augmented_text VARCHAR")
+        except Exception:
+            pass
+
         self.conn.execute("""
             CREATE TABLE IF NOT EXISTS clauses (
                 clause_id       VARCHAR PRIMARY KEY,
