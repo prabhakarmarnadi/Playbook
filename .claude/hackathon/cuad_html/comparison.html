@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Field Discovery Comparison</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+:root{--bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#e6edf3;--text-dim:#8b949e;
+  --accent:#58a6ff;--green:#3fb950;--orange:#d29922;--red:#f85149;--purple:#bc8cff;--pink:#f778ba;--cyan:#39d2c0;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+     background:var(--bg);color:var(--text);overflow-x:hidden;min-height:100vh;}
+
+#topbar{display:flex;align-items:center;justify-content:space-between;
+        background:var(--surface);border-bottom:1px solid var(--border);padding:8px 16px;height:48px;}
+#topbar h1{font-size:16px;font-weight:600;}
+.view-btn{display:inline-block;padding:4px 12px;border-radius:4px;font-size:11px;
+           cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--text);margin:0 2px;}
+.view-btn.active{background:var(--accent);color:#000;border-color:var(--accent);}
+.view-btn:hover:not(.active){background:rgba(88,166,255,.1);}
+
+#main{display:flex;min-height:calc(100vh - 48px);}
+#sidebar{width:280px;min-width:280px;background:var(--surface);border-right:1px solid var(--border);
+         padding:14px;overflow-y:auto;max-height:calc(100vh - 48px);}
+#sidebar h3{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);margin:14px 0 8px;}
+#sidebar h3:first-child{margin-top:0;}
+
+#content{flex:1;padding:20px;overflow-y:auto;max-height:calc(100vh - 48px);}
+
+.metric-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px;margin:8px 0;}
+.metric-title{font-size:11px;text-transform:uppercase;color:var(--text-dim);letter-spacing:.5px;}
+.metric-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;
+            border-bottom:1px solid rgba(255,255,255,.03);}
+.metric-label{font-size:12px;color:var(--text-dim);}
+.metric-val{font-size:14px;font-weight:700;}
+.metric-val.std{color:var(--green);}
+.metric-val.rlm{color:var(--purple);}
+.metric-val.neutral{color:var(--accent);}
+
+.bar-chart{margin:12px 0;}
+.bar-row{display:flex;align-items:center;gap:8px;margin:4px 0;}
+.bar-label{font-size:11px;min-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.bar-track{flex:1;height:20px;background:rgba(255,255,255,.03);border-radius:4px;position:relative;overflow:hidden;}
+.bar-fill{height:100%;border-radius:4px;display:flex;align-items:center;justify-content:flex-end;padding:0 4px;
+           font-size:9px;font-weight:600;color:rgba(0,0,0,.8);min-width:1px;}
+.bar-fill.std{background:var(--green);}
+.bar-fill.rlm{background:var(--purple);}
+
+.field-grid{display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));gap:6px;margin:8px 0;}
+.field-card{padding:8px;border-radius:6px;font-size:11px;border:1px solid var(--border);}
+.field-card.both{background:rgba(88,166,255,.06);border-color:rgba(88,166,255,.2);}
+.field-card.std-only{background:rgba(63,185,80,.06);border-color:rgba(63,185,80,.2);}
+.field-card.rlm-only{background:rgba(188,140,255,.06);border-color:rgba(188,140,255,.2);}
+.field-name{font-weight:700;font-size:12px;}
+.field-meta{color:var(--text-dim);font-size:10px;margin-top:2px;}
+
+.cluster-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+              padding:14px;margin:10px 0;cursor:pointer;transition:border-color .15s;}
+.cluster-card:hover{border-color:var(--accent);}
+.cluster-card.selected{border-color:var(--accent);background:rgba(88,166,255,.04);}
+.cluster-header{display:flex;justify-content:space-between;align-items:center;}
+.cluster-name{font-weight:700;font-size:13px;}
+.cluster-stats{font-size:10px;color:var(--text-dim);}
+.cluster-bars{display:flex;gap:4px;margin-top:8px;}
+.mini-bar{height:6px;border-radius:3px;}
+
+.score-badge{display:inline-block;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600;}
+.score-badge.good{background:rgba(63,185,80,.15);color:var(--green);}
+.score-badge.mid{background:rgba(210,153,34,.15);color:var(--orange);}
+.score-badge.low{background:rgba(248,81,73,.15);color:var(--red);}
+
+.legend{display:flex;gap:12px;font-size:10px;color:var(--text-dim);margin:6px 0;}
+.legend-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px;vertical-align:middle;}
+
+#tooltip{position:fixed;padding:10px 14px;background:rgba(22,27,34,.97);border:1px solid var(--border);
+         border-radius:8px;font-size:12px;pointer-events:none;z-index:100;display:none;max-width:350px;
+         box-shadow:0 6px 20px rgba(0,0,0,.5);}
+
+.section-title{font-size:16px;font-weight:700;margin:20px 0 10px;padding-bottom:6px;
+               border-bottom:1px solid var(--border);}
+
+/* Radar chart */
+.radar-axis{stroke:var(--border);stroke-width:1;}
+.radar-label{fill:var(--text-dim);font-size:10px;}
+.radar-area{fill-opacity:.15;stroke-width:2;}
+.radar-area.std{fill:var(--green);stroke:var(--green);}
+.radar-area.rlm{fill:var(--purple);stroke:var(--purple);}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>Standard vs DSPy RLM — Quality Comparison</h1>
+  <div>
+    <button class="view-btn active" data-view="overview">Overview</button>
+    <button class="view-btn" data-view="clusters">Per Cluster</button>
+    <button class="view-btn" data-view="fields">Field Analysis</button>
+  </div>
+  <div style="font-size:11px;color:var(--text-dim);" id="stats-bar"></div>
+</div>
+
+<div id="main">
+  <div id="sidebar"></div>
+  <div id="content"></div>
+</div>
+<div id="tooltip"></div>
+
+<script>
+let DATA=null, activeView='overview', selectedCluster=0;
+const tooltip=document.getElementById('tooltip');
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+function hideTooltip(){tooltip.style.display='none';}
+function showTooltip(ev,html){
+  tooltip.innerHTML=html;tooltip.style.display='block';
+  const tt=tooltip.getBoundingClientRect();
+  tooltip.style.left=Math.min(ev.clientX+12,innerWidth-tt.width-10)+'px';
+  tooltip.style.top=Math.min(ev.clientY-8,innerHeight-tt.height-10)+'px';
+}
+function scoreBadge(v,threshHi=0.5,threshMid=0.2){
+  if(v==null)return'<span class="score-badge mid">N/A</span>';
+  const cls=v>=threshHi?'good':v>=threshMid?'mid':'low';
+  return `<span class="score-badge ${cls}">${typeof v==='number'?v.toFixed(3):v}</span>`;
+}
+
+async function loadData(){
+  const resp=await fetch('data/comparison_viz.json');
+  DATA=await resp.json();
+  document.querySelectorAll('.view-btn').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+  switchView('overview');
+}
+
+function switchView(v){
+  activeView=v;
+  document.querySelectorAll('.view-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
+  buildSidebar();buildStats();
+  if(v==='overview')buildOverview();
+  else if(v==='clusters')buildClusters();
+  else if(v==='fields')buildFields();
+}
+
+function buildStats(){
+  const s=DATA.summary;
+  document.getElementById('stats-bar').innerHTML=
+    `${s.n_clusters} clusters compared · `+
+    `<span style="color:var(--green)">Standard: ${s.field_counts.standard_mean} avg fields</span> · `+
+    `<span style="color:var(--purple)">RLM: ${s.field_counts.rlm_mean} avg fields</span>`;
+}
+
+/* ─── SIDEBAR ─── */
+function buildSidebar(){
+  const sb=document.getElementById('sidebar');
+  const s=DATA.summary;
+  let html='<h3>Summary</h3>';
+
+  html+=`<div class="metric-card">
+    <div class="metric-title">Field Counts</div>
+    <div class="metric-row"><span class="metric-label">Standard (mean)</span>
+      <span class="metric-val std">${s.field_counts.standard_mean}</span></div>
+    <div class="metric-row"><span class="metric-label">RLM (mean)</span>
+      <span class="metric-val rlm">${s.field_counts.rlm_mean}</span></div>
+    <div class="metric-row"><span class="metric-label">Standard (median)</span>
+      <span class="metric-val std">${s.field_counts.standard_median}</span></div>
+    <div class="metric-row"><span class="metric-label">RLM (median)</span>
+      <span class="metric-val rlm">${s.field_counts.rlm_median}</span></div>
+  </div>`;
+
+  html+=`<div class="metric-card">
+    <div class="metric-title">Overlap</div>
+    <div class="metric-row"><span class="metric-label">Mean Jaccard</span>
+      <span class="metric-val neutral">${s.overlap.mean_jaccard}</span></div>
+    <div class="metric-row"><span class="metric-label">Median Jaccard</span>
+      <span class="metric-val neutral">${s.overlap.median_jaccard}</span></div>
+    <div class="metric-row"><span class="metric-label">Type Agreement</span>
+      <span class="metric-val neutral">${s.overlap.mean_type_agreement}</span></div>
+  </div>`;
+
+  html+=`<div class="metric-card">
+    <div class="metric-title">Latency (seconds)</div>
+    <div class="metric-row"><span class="metric-label">Standard (avg)</span>
+      <span class="metric-val std">${s.latency_s.standard_mean}s</span></div>
+    <div class="metric-row"><span class="metric-label">RLM (avg)</span>
+      <span class="metric-val rlm">${s.latency_s.rlm_mean}s</span></div>
+    <div class="metric-row"><span class="metric-label">Standard (total)</span>
+      <span class="metric-val std">${s.latency_s.standard_total}s</span></div>
+    <div class="metric-row"><span class="metric-label">RLM (total)</span>
+      <span class="metric-val rlm">${s.latency_s.rlm_total}s</span></div>
+  </div>`;
+
+  if(s.extraction){
+    html+=`<div class="metric-card">
+      <div class="metric-title">Extraction Quality</div>
+      <div class="metric-row"><span class="metric-label">Std fill rate</span>
+        <span class="metric-val std">${s.extraction.standard_fill_rate!=null?s.extraction.standard_fill_rate:'N/A'}</span></div>
+      <div class="metric-row"><span class="metric-label">RLM fill rate</span>
+        <span class="metric-val rlm">${s.extraction.rlm_fill_rate!=null?s.extraction.rlm_fill_rate:'N/A'}</span></div>
+      <div class="metric-row"><span class="metric-label">Std confidence</span>
+        <span class="metric-val std">${s.extraction.standard_avg_confidence!=null?s.extraction.standard_avg_confidence:'N/A'}</span></div>
+      <div class="metric-row"><span class="metric-label">RLM confidence</span>
+        <span class="metric-val rlm">${s.extraction.rlm_avg_confidence!=null?s.extraction.rlm_avg_confidence:'N/A'}</span></div>
+    </div>`;
+  }
+
+  html+=`<div class="metric-card">
+    <div class="metric-title">Reliability</div>
+    <div class="metric-row"><span class="metric-label">Std failures</span>
+      <span class="metric-val std">${s.reliability.standard_failures}</span></div>
+    <div class="metric-row"><span class="metric-label">RLM failures</span>
+      <span class="metric-val rlm">${s.reliability.rlm_failures}</span></div>
+    <div class="metric-row"><span class="metric-label">RLM fallback rate</span>
+      <span class="metric-val neutral">${(s.reliability.rlm_fallback_rate*100).toFixed(1)}%</span></div>
+  </div>`;
+
+  html+=`<h3>Legend</h3>
+    <div class="legend"><span class="legend-dot" style="background:var(--green)"></span>Standard</div>
+    <div class="legend"><span class="legend-dot" style="background:var(--purple)"></span>DSPy RLM</div>
+    <div class="legend"><span class="legend-dot" style="background:var(--accent)"></span>Both</div>`;
+
+  sb.innerHTML=html;
+}
+
+/* ─── OVERVIEW ─── */
+function buildOverview(){
+  const content=document.getElementById('content');
+  let html='';
+
+  // Radar chart for overall comparison
+  html+=`<div class="section-title">Overall Quality Comparison</div>`;
+  html+=`<div style="display:flex;gap:20px;flex-wrap:wrap;">`;
+  html+=`<div id="radar-chart" style="width:350px;height:350px;"></div>`;
+
+  // Summary interpretation
+  const s=DATA.summary;
+  const stdWins=s.field_counts.standard_mean>s.field_counts.rlm_mean;
+  const latencyRatio=(s.latency_s.rlm_mean/s.latency_s.standard_mean).toFixed(1);
+  html+=`<div style="flex:1;min-width:300px;">
+    <div class="metric-card">
+      <div class="metric-title">Key Findings</div>
+      <div style="font-size:12px;line-height:1.8;padding:8px 0;">
+        <div>• <b style="color:var(--green)">Standard</b> discovers <b>${s.field_counts.standard_mean}</b> fields/cluster vs
+           <b style="color:var(--purple)">RLM</b>'s <b>${s.field_counts.rlm_mean}</b></div>
+        <div>• Jaccard overlap: <b>${s.overlap.mean_jaccard}</b> — approaches find <b>mostly different fields</b></div>
+        <div>• Type agreement on shared fields: <b>${(s.overlap.mean_type_agreement*100).toFixed(0)}%</b></div>
+        <div>• RLM is <b>${latencyRatio}x slower</b> (${s.latency_s.rlm_mean}s vs ${s.latency_s.standard_mean}s per cluster)</div>
+        <div>• RLM failure rate: <b>${(s.reliability.rlm_fallback_rate*100).toFixed(1)}%</b> (${s.reliability.rlm_failures}/${s.n_clusters} clusters)</div>`;
+  if(s.extraction.standard_fill_rate!=null){
+    html+=`<div>• Extraction fill rate: Standard <b>${(s.extraction.standard_fill_rate*100).toFixed(1)}%</b> vs RLM <b>${(s.extraction.rlm_fill_rate!=null?(s.extraction.rlm_fill_rate*100).toFixed(1):'N/A')}%</b></div>`;
+    html+=`<div>• Avg confidence: Standard <b>${s.extraction.standard_avg_confidence}</b> vs RLM <b>${s.extraction.rlm_avg_confidence!=null?s.extraction.rlm_avg_confidence:'N/A'}</b></div>`;
+  }
+  html+=`</div></div></div>`;
+  html+=`</div>`;
+
+  // Field count comparison bar chart
+  html+=`<div class="section-title">Field Counts per Cluster</div>`;
+  html+=`<div class="legend" style="margin-bottom:8px;">
+    <span><span class="legend-dot" style="background:var(--green)"></span>Standard</span>
+    <span><span class="legend-dot" style="background:var(--purple)"></span>DSPy RLM</span>
+  </div>`;
+  const maxFields=d3.max(DATA.clusters,c=>Math.max(c.std_fields,c.rlm_fields))||1;
+  html+=`<div class="bar-chart">`;
+  DATA.clusters.forEach(c=>{
+    const stdW=Math.max(1,c.std_fields/maxFields*100);
+    const rlmW=Math.max(1,c.rlm_fields/maxFields*100);
+    html+=`<div class="bar-row">
+      <div class="bar-label" title="${esc(c.label)}">${esc(c.label.slice(0,25))}</div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:2px;">
+        <div class="bar-track"><div class="bar-fill std" style="width:${stdW}%">${c.std_fields}</div></div>
+        <div class="bar-track"><div class="bar-fill rlm" style="width:${rlmW}%">${c.rlm_fields}</div></div>
+      </div>
+    </div>`;
+  });
+  html+=`</div>`;
+
+  // Latency comparison
+  html+=`<div class="section-title">Latency per Cluster (seconds)</div>`;
+  const maxTime=d3.max(DATA.clusters,c=>Math.max(c.std_time,c.rlm_time))||1;
+  html+=`<div class="bar-chart">`;
+  DATA.clusters.forEach(c=>{
+    html+=`<div class="bar-row">
+      <div class="bar-label">${esc(c.label.slice(0,25))}</div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:2px;">
+        <div class="bar-track"><div class="bar-fill std" style="width:${c.std_time/maxTime*100}%">${c.std_time}s</div></div>
+        <div class="bar-track"><div class="bar-fill rlm" style="width:${c.rlm_time/maxTime*100}%">${c.rlm_time}s</div></div>
+      </div>
+    </div>`;
+  });
+  html+=`</div>`;
+
+  // Jaccard & Type Agreement scatter
+  html+=`<div class="section-title">Overlap Metrics</div>`;
+  html+=`<div id="scatter-chart" style="width:100%;height:350px;"></div>`;
+
+  // Extraction fill rate comparison (if available)
+  const hasExt=DATA.clusters.some(c=>c.std_ext_fill!=null||c.rlm_ext_fill!=null);
+  if(hasExt){
+    html+=`<div class="section-title">Extraction Quality</div>`;
+    html+=`<div style="display:flex;gap:20px;flex-wrap:wrap;">`;
+    html+=`<div style="flex:1;min-width:300px;"><div class="metric-title">Fill Rate per Cluster</div>`;
+    html+=`<div class="bar-chart">`;
+    DATA.clusters.forEach(c=>{
+      const sf=(c.std_ext_fill!=null?c.std_ext_fill:0)*100;
+      const rf=(c.rlm_ext_fill!=null?c.rlm_ext_fill:0)*100;
+      html+=`<div class="bar-row">
+        <div class="bar-label">${esc(c.label.slice(0,20))}</div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:2px;">
+          <div class="bar-track"><div class="bar-fill std" style="width:${sf}%">${sf.toFixed(0)}%</div></div>
+          <div class="bar-track"><div class="bar-fill rlm" style="width:${rf}%">${rf.toFixed(0)}%</div></div>
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+
+    html+=`<div style="flex:1;min-width:300px;"><div class="metric-title">Avg Confidence per Cluster</div>`;
+    html+=`<div class="bar-chart">`;
+    DATA.clusters.forEach(c=>{
+      const sc=(c.std_ext_conf!=null?c.std_ext_conf:0)*100;
+      const rc=(c.rlm_ext_conf!=null?c.rlm_ext_conf:0)*100;
+      html+=`<div class="bar-row">
+        <div class="bar-label">${esc(c.label.slice(0,20))}</div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:2px;">
+          <div class="bar-track"><div class="bar-fill std" style="width:${sc}%">${(sc/100).toFixed(3)}</div></div>
+          <div class="bar-track"><div class="bar-fill rlm" style="width:${rc}%">${(rc/100).toFixed(3)}</div></div>
+        </div>
+      </div>`;
+    });
+    html+=`</div></div></div>`;
+  }
+
+  content.innerHTML=html;
+  drawRadar();
+  drawScatter();
+}
+
+function drawRadar(){
+  const el=document.getElementById('radar-chart');
+  if(!el)return;
+  const s=DATA.summary;
+  const W=350,H=350,cx=W/2,cy=H/2,R=120;
+  const svg=d3.select(el).append('svg').attr('width',W).attr('height',H);
+  const g=svg.append('g').attr('transform',`translate(${cx},${cy})`);
+
+  // Normalize metrics to 0-1
+  const maxFields=Math.max(s.field_counts.standard_mean,s.field_counts.rlm_mean,1);
+  const maxLat=Math.max(s.latency_s.standard_mean,s.latency_s.rlm_mean,1);
+  const dims=[
+    {label:'Fields', std:s.field_counts.standard_mean/maxFields, rlm:s.field_counts.rlm_mean/maxFields},
+    {label:'Reliability', std:1-s.reliability.standard_failures/s.n_clusters, rlm:1-s.reliability.rlm_fallback_rate},
+    {label:'Speed', std:1-s.latency_s.standard_mean/maxLat, rlm:1-s.latency_s.rlm_mean/maxLat},
+    {label:'Fill Rate', std:s.extraction.standard_fill_rate||0, rlm:s.extraction.rlm_fill_rate||0},
+    {label:'Confidence', std:s.extraction.standard_avg_confidence||0, rlm:s.extraction.rlm_avg_confidence||0},
+  ];
+  const n=dims.length;
+  const angle=i=>((Math.PI*2)/n)*i - Math.PI/2;
+
+  // Grid
+  [0.25,0.5,0.75,1.0].forEach(r=>{
+    g.append('circle').attr('r',R*r).attr('fill','none').attr('class','radar-axis');
+  });
+  dims.forEach((_,i)=>{
+    const a=angle(i);
+    g.append('line').attr('x1',0).attr('y1',0)
+      .attr('x2',Math.cos(a)*R).attr('y2',Math.sin(a)*R).attr('class','radar-axis');
+    g.append('text')
+      .attr('x',Math.cos(a)*(R+14)).attr('y',Math.sin(a)*(R+14))
+      .attr('text-anchor','middle').attr('dy','.35em').attr('class','radar-label')
+      .text(dims[i].label);
+  });
+
+  // Areas
+  function makeArea(key,cls){
+    const pts=dims.map((d,i)=>{
+      const a=angle(i), r=R*(d[key]||0);
+      return [Math.cos(a)*r,Math.sin(a)*r];
+    });
+    g.append('polygon')
+      .attr('points',pts.map(p=>p.join(',')).join(' '))
+      .attr('class',`radar-area ${cls}`);
+  }
+  makeArea('std','std');
+  makeArea('rlm','rlm');
+
+  // Legend
+  svg.append('circle').attr('cx',20).attr('cy',H-30).attr('r',5).attr('fill','var(--green)');
+  svg.append('text').attr('x',30).attr('y',H-26).attr('fill','var(--text-dim)').style('font-size','10px').text('Standard');
+  svg.append('circle').attr('cx',100).attr('cy',H-30).attr('r',5).attr('fill','var(--purple)');
+  svg.append('text').attr('x',110).attr('y',H-26).attr('fill','var(--text-dim)').style('font-size','10px').text('DSPy RLM');
+}
+
+function drawScatter(){
+  const el=document.getElementById('scatter-chart');
+  if(!el)return;
+  const W=el.clientWidth||800,H=350;
+  const margin={top:20,right:30,bottom:40,left:50};
+  const svg=d3.select(el).append('svg').attr('width',W).attr('height',H);
+  const g=svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
+  const iW=W-margin.left-margin.right, iH=H-margin.top-margin.bottom;
+
+  const x=d3.scaleLinear().domain([0,1]).range([0,iW]);
+  const y=d3.scaleLinear().domain([0,1]).range([iH,0]);
+
+  g.append('g').attr('transform',`translate(0,${iH})`).call(d3.axisBottom(x).ticks(5))
+    .selectAll('text').attr('fill','var(--text-dim)');
+  g.append('g').call(d3.axisLeft(y).ticks(5))
+    .selectAll('text').attr('fill','var(--text-dim)');
+
+  g.append('text').attr('x',iW/2).attr('y',iH+35).attr('text-anchor','middle')
+    .attr('fill','var(--text-dim)').style('font-size','11px').text('Jaccard Overlap');
+  g.append('text').attr('transform','rotate(-90)').attr('x',-iH/2).attr('y',-38)
+    .attr('text-anchor','middle').attr('fill','var(--text-dim)').style('font-size','11px')
+    .text('Type Agreement');
+
+  DATA.clusters.forEach(c=>{
+    const r=Math.sqrt(Math.max(c.std_fields,c.rlm_fields))*3;
+    g.append('circle')
+      .attr('cx',x(c.jaccard)).attr('cy',y(c.type_agreement))
+      .attr('r',r).attr('fill','var(--accent)').attr('fill-opacity',.5)
+      .attr('stroke','var(--accent)').attr('stroke-opacity',.8)
+      .on('mouseover',(ev)=>showTooltip(ev,
+        `<div style="font-weight:700">${esc(c.label)}</div>
+         <div style="color:var(--text-dim);font-size:11px">
+           Jaccard: <b>${c.jaccard}</b> · Type agree: <b>${c.type_agreement}</b><br>
+           Std: ${c.std_fields} fields · RLM: ${c.rlm_fields} fields<br>
+           Common: ${c.common.join(', ')||'none'}
+         </div>`))
+      .on('mouseout',hideTooltip);
+  });
+}
+
+/* ─── PER CLUSTER ─── */
+function buildClusters(){
+  const content=document.getElementById('content');
+  let html=`<div class="section-title">Per-Cluster Comparison</div>`;
+
+  DATA.clusters.forEach((c,ci)=>{
+    const maxF=Math.max(c.std_fields,c.rlm_fields,1);
+    html+=`<div class="cluster-card" onclick="showClusterDetail(${ci})">
+      <div class="cluster-header">
+        <div class="cluster-name">${esc(c.label)}</div>
+        <div class="cluster-stats">${c.chunk_count} chunks · jaccard ${scoreBadge(c.jaccard)}</div>
+      </div>
+      <div class="cluster-bars">
+        <div class="mini-bar" style="width:${c.std_fields/maxF*200}px;background:var(--green);"></div>
+        <span style="font-size:10px;color:var(--green)">${c.std_fields}</span>
+        <div class="mini-bar" style="width:${c.rlm_fields/maxF*200}px;background:var(--purple);margin-left:8px;"></div>
+        <span style="font-size:10px;color:var(--purple)">${c.rlm_fields}</span>
+        <span style="font-size:10px;color:var(--text-dim);margin-left:8px;">${c.common.length} shared</span>
+      </div>`;
+    // Show extraction if available
+    if(c.std_ext_fill!=null||c.rlm_ext_fill!=null){
+      html+=`<div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
+        Fill: <span style="color:var(--green)">${c.std_ext_fill!=null?(c.std_ext_fill*100).toFixed(0)+'%':'—'}</span> /
+        <span style="color:var(--purple)">${c.rlm_ext_fill!=null?(c.rlm_ext_fill*100).toFixed(0)+'%':'—'}</span> ·
+        Conf: <span style="color:var(--green)">${c.std_ext_conf!=null?c.std_ext_conf.toFixed(3):'—'}</span> /
+        <span style="color:var(--purple)">${c.rlm_ext_conf!=null?c.rlm_ext_conf.toFixed(3):'—'}</span>
+      </div>`;
+    }
+    html+=`</div>`;
+  });
+
+  html+=`<div id="cluster-detail"></div>`;
+  content.innerHTML=html;
+}
+
+window.showClusterDetail=function(ci){
+  const c=DATA.clusters[ci];
+  const det=document.getElementById('cluster-detail');
+  if(!det)return;
+
+  let html=`<div class="section-title">${esc(c.label)} — Field Breakdown</div>`;
+  html+=`<div class="legend" style="margin-bottom:8px;">
+    <span><span class="legend-dot" style="background:var(--accent)"></span>Both approaches found</span>
+    <span><span class="legend-dot" style="background:var(--green)"></span>Standard only</span>
+    <span><span class="legend-dot" style="background:var(--purple)"></span>RLM only</span>
+  </div>`;
+  html+=`<div class="field-grid">`;
+  c.fields.forEach(f=>{
+    const cls=f.in_both?'both':f.in_standard?'std-only':'rlm-only';
+    const typeMatch=f.type_match?'<span style="color:var(--green)">✓ same type</span>':
+      (f.in_both?`<span style="color:var(--orange)">⚠ ${f.std_type} vs ${f.rlm_type}</span>`:'');
+    html+=`<div class="field-card ${cls}">
+      <div class="field-name">${esc(f.name)}</div>
+      <div class="field-meta">
+        ${f.in_standard?`<span style="color:var(--green)">Std: ${f.std_type}</span>`:''}
+        ${f.in_rlm?`<span style="color:var(--purple)">RLM: ${f.rlm_type}</span>`:''}
+        ${typeMatch?'<br>'+typeMatch:''}
+      </div>
+      ${f.std_description?`<div style="font-size:10px;color:var(--text-dim);margin-top:3px;">${esc(f.std_description.slice(0,80))}</div>`:''}
+    </div>`;
+  });
+  html+=`</div>`;
+  det.innerHTML=html;
+  det.scrollIntoView({behavior:'smooth'});
+};
+
+/* ─── FIELD ANALYSIS ─── */
+function buildFields(){
+  const content=document.getElementById('content');
+  let html=`<div class="section-title">Field Type Distribution</div>`;
+
+  // Aggregate field types across all clusters
+  const stdTypes={}, rlmTypes={};
+  DATA.clusters.forEach(c=>{
+    c.fields.forEach(f=>{
+      if(f.in_standard){stdTypes[f.std_type]=(stdTypes[f.std_type]||0)+1;}
+      if(f.in_rlm){rlmTypes[f.rlm_type]=(rlmTypes[f.rlm_type]||0)+1;}
+    });
+  });
+  const allTypes=[...new Set([...Object.keys(stdTypes),...Object.keys(rlmTypes)])].filter(t=>t).sort();
+  const maxT=d3.max(allTypes,t=>Math.max(stdTypes[t]||0,rlmTypes[t]||0))||1;
+
+  html+=`<div class="bar-chart">`;
+  allTypes.forEach(t=>{
+    const sv=stdTypes[t]||0, rv=rlmTypes[t]||0;
+    html+=`<div class="bar-row">
+      <div class="bar-label" style="min-width:100px;">${t}</div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:2px;">
+        <div class="bar-track"><div class="bar-fill std" style="width:${sv/maxT*100}%">${sv}</div></div>
+        <div class="bar-track"><div class="bar-fill rlm" style="width:${rv/maxT*100}%">${rv}</div></div>
+      </div>
+    </div>`;
+  });
+  html+=`</div>`;
+
+  // Unique fields per approach
+  html+=`<div class="section-title">Fields Found by Only One Approach</div>`;
+  html+=`<div style="display:flex;gap:20px;flex-wrap:wrap;">`;
+
+  html+=`<div style="flex:1;min-width:300px;"><div class="metric-title" style="color:var(--green)">Standard Only</div>`;
+  const stdOnly=new Set();
+  DATA.clusters.forEach(c=>c.only_std.forEach(f=>stdOnly.add(f)));
+  [...stdOnly].sort().forEach(f=>{
+    html+=`<div style="font-size:11px;padding:2px 0;color:var(--text-dim);">• ${esc(f)}</div>`;
+  });
+  html+=`<div style="font-size:10px;color:var(--text-dim);margin-top:4px;">${stdOnly.size} unique fields</div></div>`;
+
+  html+=`<div style="flex:1;min-width:300px;"><div class="metric-title" style="color:var(--purple)">RLM Only</div>`;
+  const rlmOnly=new Set();
+  DATA.clusters.forEach(c=>c.only_rlm.forEach(f=>rlmOnly.add(f)));
+  [...rlmOnly].sort().forEach(f=>{
+    html+=`<div style="font-size:11px;padding:2px 0;color:var(--text-dim);">• ${esc(f)}</div>`;
+  });
+  html+=`<div style="font-size:10px;color:var(--text-dim);margin-top:4px;">${rlmOnly.size} unique fields</div></div>`;
+  html+=`</div>`;
+
+  // Most commonly found fields
+  html+=`<div class="section-title">Most Common Fields (across clusters)</div>`;
+  const fieldCounts={};
+  DATA.clusters.forEach(c=>c.fields.forEach(f=>{
+    fieldCounts[f.name]=(fieldCounts[f.name]||0)+1;
+  }));
+  const sorted=Object.entries(fieldCounts).sort((a,b)=>b[1]-a[1]).slice(0,30);
+  const maxFc=sorted[0]?sorted[0][1]:1;
+  html+=`<div class="bar-chart">`;
+  sorted.forEach(([name,cnt])=>{
+    html+=`<div class="bar-row">
+      <div class="bar-label" style="min-width:160px;">${esc(name)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${cnt/maxFc*100}%;background:var(--accent);">${cnt}</div></div>
+    </div>`;
+  });
+  html+=`</div>`;
+
+  content.innerHTML=html;
+}
+
+loadData();
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+You are labeling a group of legal agreements that were automatically clustered together.
+
+Keywords for this cluster: {keywords}
+
+Representative document excerpts (first 200 chars each):
+{excerpts}
+
+What type of agreement domain is this? Respond in JSON:
+{"label": "short name like SaaS, NDA, Employment, Vendor, Lease", "description": "one sentence describing this domain"}

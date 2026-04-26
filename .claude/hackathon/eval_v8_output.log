@@ -1,0 +1,219 @@
+17:36:09 | INFO  | __main__                  | 
+================================================================================
+17:36:09 | INFO  | __main__                  | CLUSTER: Franchise agreement (ct_f778e156) — 392 chunks
+17:36:09 | INFO  | __main__                  | ================================================================================
+17:36:09 | INFO  | __main__                  | Phase 1: RLM V3 Discovery...
+17:36:23 | INFO  | datasets                  | PyTorch version 2.6.0+cu124 available.
+17:36:23 | INFO  | datasets                  | Duckdb version 1.5.1 available.
+17:36:23 | INFO  | sentence_transformers.SentenceTransformer | Use pytorch device_name: cuda:0
+17:36:23 | INFO  | sentence_transformers.SentenceTransformer | Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+17:36:25 | INFO  | core.rlm_v3               | Loaded shared embedder: all-MiniLM-L6-v2
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  5.58it/s]Batches: 100%|██████████| 1/1 [00:00<00:00,  5.57it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 105.17it/s]
+17:36:34 | INFO  | core.latent_briefing      | Text Latent Briefing: 115 → 0 tokens (100.0% compressed, 0.013s, τ=1.55, 1/1 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 206.06it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 208.94it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 94.50it/s]
+17:37:03 | INFO  | core.latent_briefing      | Text Latent Briefing: 312 → 76 tokens (75.6% compressed, 0.014s, τ=1.6, 0/3 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 103.46it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 185.87it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 201.64it/s]
+Batches:   0%|          | 0/2 [00:00<?, ?it/s]Batches: 100%|██████████| 2/2 [00:00<00:00, 93.68it/s]
+17:37:37 | INFO  | __main__                  |   Discovery: 43 fields in 87.59s
+17:37:37 | INFO  | __main__                  |   Fields: ['agreement_title', 'agreement_type', 'effective_date', 'execution_location', 'franchisor_name', 'franchisor_address', 'franchisee_name', 'franchisee_address', 'franchisor_role_label', 'territory', 'grant_of_rights', 'business_concept', 'system_definition', 'franchised_business', 'agreement_scope', 'guaranty_exists', 'state_addendum_california', 'state_addendum_new_york', 'state_addendum_supersession', 'termination_rights_notice', 'governing_law_override', 'litigation_representation', 'criminal_history_representation', 'termination_section', 'post_termination_rights_section', 'post_termination_marks_obligation', 'post_termination_deidentification_obliga', 'post_termination_confidentiality_obligat', 'transfer_restrictions_section', 'bankruptcy_transfer_right_of_first_refus', 'unit_franchise_section', 'proprietary_marks_use', 'independent_contractor_status', 'indemnification_clause', 'approvals_waivers_notices_section', 'entire_agreement_section', 'applicable_law_section', 'security_interest_section', 'acknowledgments_section', 'franchise_fee_heading', 'term_renewal_heading', 'training_heading', 'location_heading']
+17:37:37 | INFO  | __main__                  | Phase 2: Core RAG Extraction...
+17:37:37 | INFO  | sentence_transformers.SentenceTransformer | Use pytorch device_name: cuda:0
+17:37:37 | INFO  | sentence_transformers.SentenceTransformer | Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+17:37:38 | INFO  | faiss.loader              | Loading faiss with AVX2 support.
+17:37:38 | INFO  | faiss.loader              | Successfully loaded faiss with AVX2 support.
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:38 | INFO  | core.retrieval            | Loading CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2
+17:37:39 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:40 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:40 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:40 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:37:40 | INFO  | core.retrieval            | HybridRetriever initialized: 57 chunks, dim=384
+17:37:40 | INFO  | core.retrieval            | HybridRetriever initialized: 26 chunks, dim=384
+17:37:41 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:41 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:41 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:41 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:41 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:41 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:41 | INFO  | sentence_transformers.cross_encoder.CrossEncoder | Use pytorch device: cuda:0
+17:37:41 | INFO  | core.retrieval            | HybridRetriever initialized: 6 chunks, dim=384
+17:37:41 | INFO  | core.retrieval            | HybridRetriever initialized: 3 chunks, dim=384
+17:37:41 | INFO  | core.retrieval            | HybridRetriever initialized: 52 chunks, dim=384
+17:37:41 | INFO  | core.retrieval            | HybridRetriever initialized: 41 chunks, dim=384
+17:37:41 | INFO  | core.retrieval            | HybridRetriever initialized: 10 chunks, dim=384
+17:37:41 | INFO  | core.retrieval            | HybridRetriever initialized: 5 chunks, dim=384
+17:37:41 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:38:53 | WARNING | __main__                  | LLM error: Expecting value: line 1 column 1 (char 0)
+17:38:54 | WARNING | __main__                  | LLM error: Error code: 400 - {'error': {'message': "The response was filtered due to the prompt triggering Azure OpenAI's content management policy. Please modify your prompt and retry. To learn more about our content filtering policies please read our documentation: https://go.microsoft.com/fwlink/?linkid=2198766", 'type': None, 'param': 'prompt', 'code': 'content_filter', 'status': 400, 'innererror': {'code': 'ResponsibleAIPolicyViolation', 'content_filter_result': {'hate': {'filtered': True, 'severity': 'medium'}, 'jailbreak': {'detected': False, 'filtered': False}, 'self_harm': {'filtered': False, 'severity': 'safe'}, 'sexual': {'filtered': False, 'severity': 'safe'}, 'violence': {'filtered': False, 'severity': 'safe'}}}}}
+17:39:35 | INFO  | __main__                  |   Extraction: 79 values in 118.23s
+17:39:35 | INFO  | __main__                  |   Retries: 687, Reviewer rejections: 32
+17:39:35 | INFO  | __main__                  |   Metrics: fill=18.4%, verbatim=86.1%, halluc=0.0%
+17:39:35 | INFO  | __main__                  | 
+================================================================================
+17:39:35 | INFO  | __main__                  | CLUSTER: Offering Allocation Compliance (ct_89e477aa) — 860 chunks
+17:39:35 | INFO  | __main__                  | ================================================================================
+17:39:35 | INFO  | __main__                  | Phase 1: RLM V3 Discovery...
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 155.34it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 114.29it/s]
+17:39:52 | INFO  | core.latent_briefing      | Text Latent Briefing: 106 → 0 tokens (100.0% compressed, 0.011s, τ=1.55, 1/1 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 205.98it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 223.17it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 104.65it/s]
+17:40:24 | INFO  | core.latent_briefing      | Text Latent Briefing: 286 → 106 tokens (62.9% compressed, 0.013s, τ=1.6, 0/3 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 205.30it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 205.74it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 208.71it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 119.70it/s]
+17:40:53 | INFO  | __main__                  |   Discovery: 24 fields in 77.52s
+17:40:53 | INFO  | __main__                  |   Fields: ['offering_type', 'security_type', 'issuer_name', 'offeree_class', 'priority_order', 'max_shares_offered', 'offering_date', 'registration_status', 'broker_dealer_status', 'marketing_restriction', 'investor_qualification', 'relationship_basis', 'offering_channel', 'condition_to_closing', 'offered_shares_total', 'par_value', 'subscription_price', 'offering_price', 'compensation_options_percentage', 'compensation_option_term', 'settlement_date', 'closing_date', 'offering_document_title', 'agency_agreement_date']
+17:40:53 | INFO  | __main__                  | Phase 2: Core RAG Extraction...
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 18 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 2 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 2 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 61 chunks, dim=384
+17:40:53 | INFO  | core.retrieval            | HybridRetriever initialized: 28 chunks, dim=384
+17:42:02 | INFO  | __main__                  |   Extraction: 26 values in 68.82s
+17:42:02 | INFO  | __main__                  |   Retries: 412, Reviewer rejections: 15
+17:42:02 | INFO  | __main__                  |   Metrics: fill=10.8%, verbatim=69.2%, halluc=0.0%
+17:42:02 | INFO  | __main__                  | 
+================================================================================
+17:42:02 | INFO  | __main__                  | CLUSTER: Website Co-Branding Agreement (ct_e318cbba) — 44 chunks
+17:42:02 | INFO  | __main__                  | ================================================================================
+17:42:02 | INFO  | __main__                  | Phase 1: RLM V3 Discovery...
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 193.35it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 186.31it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 200.34it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 187.08it/s]
+Batches:   0%|          | 0/2 [00:00<?, ?it/s]Batches: 100%|██████████| 2/2 [00:00<00:00, 136.46it/s]
+17:44:12 | INFO  | __main__                  |   Discovery: 37 fields in 129.6s
+17:44:12 | INFO  | __main__                  |   Fields: ['effective_date', 'launch_date', 'term', 'party_name', 'party_website', 'diet_center_name', 'gateway_page_name', 'distribution_channels', 'hosting_party', 'hosting_location', 'content_license_scope', 'licensed_content_definition', 'content_delivery_deadline', 'content_format_specification', 'editorial_guidelines', 'approval_period', 'prohibited_links_or_competitors', 'factual_accuracy_responsibility', 'advertising_inventory_commitment', 'quarterly_impression_guarantee', 'make_good_remedy', 'media_metrics_allocation', 'exclusivity_scope', 'right_of_first_refusal_period', 'user_data_ownership', 'privacy_policy_compliance', 'marks_license_scope', 'marks_withdrawal_notice_period', 'quality_control_standards', 'non_alteration_requirement', 'refund_reimbursement_obligation', 'competitive_company_definition', 'revision_cure_period', 'impression_guarantee_threshold', 'quarterly_impression_amounts', 'underdelivery_cure_period', 'indemnity_scope_facts_claims']
+17:44:12 | INFO  | __main__                  | Phase 2: Core RAG Extraction...
+17:44:12 | INFO  | core.retrieval            | HybridRetriever initialized: 44 chunks, dim=384
+17:44:27 | WARNING | __main__                  | LLM error: Error code: 400 - {'error': {'message': "The response was filtered due to the prompt triggering Azure OpenAI's content management policy. Please modify your prompt and retry. To learn more about our content filtering policies please read our documentation: https://go.microsoft.com/fwlink/?linkid=2198766", 'type': None, 'param': 'prompt', 'code': 'content_filter', 'status': 400, 'innererror': {'code': 'ResponsibleAIPolicyViolation', 'content_filter_result': {'hate': {'filtered': False, 'severity': 'low'}, 'jailbreak': {'detected': False, 'filtered': False}, 'self_harm': {'filtered': False, 'severity': 'safe'}, 'sexual': {'filtered': True, 'severity': 'medium'}, 'violence': {'filtered': False, 'severity': 'safe'}}}}}
+17:44:44 | INFO  | __main__                  |   Extraction: 34 values in 32.13s
+17:44:44 | INFO  | __main__                  |   Retries: 4, Reviewer rejections: 10
+17:44:44 | INFO  | __main__                  |   Metrics: fill=91.9%, verbatim=73.5%, halluc=0.0%
+17:44:44 | INFO  | __main__                  | 
+================================================================================
+17:44:44 | INFO  | __main__                  | CLUSTER: Defined Terms and Exceptions (ct_115cb3ec) — 28 chunks
+17:44:44 | INFO  | __main__                  | ================================================================================
+17:44:44 | INFO  | __main__                  | Phase 1: RLM V3 Discovery...
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 196.00it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 131.17it/s]
+17:45:11 | INFO  | core.latent_briefing      | Text Latent Briefing: 111 → 0 tokens (100.0% compressed, 0.010s, τ=1.55, 1/1 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 214.47it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 191.68it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 209.54it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 157.73it/s]
+17:45:41 | INFO  | core.latent_briefing      | Text Latent Briefing: 402 → 81 tokens (79.9% compressed, 0.009s, τ=1.65, 1/4 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 217.32it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 232.54it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 164.67it/s]
+17:46:04 | INFO  | core.latent_briefing      | Text Latent Briefing: 603 → 166 tokens (72.5% compressed, 0.009s, τ=1.7, 2/6 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 219.78it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 230.48it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 130.45it/s]
+17:46:10 | INFO  | __main__                  |   Discovery: 21 fields in 85.65s
+17:46:10 | INFO  | __main__                  |   Fields: ['defined_term', 'definition_text', 'cross_reference_source', 'incorporation_by_reference_flag', 'exclusion_text', 'carveout_condition', 'illustrative_example_flag', 'enumerated_definition_components', 'scope_limitation', 'negative_scope_language', 'attribution_exclusion', 'definition_source_section', 'definition_source_document', 'illustrative_purpose_language', 'example_schedule_reference', 'definition_modifier', 'express_inclusion_language', 'definition_exception_list', 'definition_with_subenumerations', 'definition_with_provided_that_exception', 'definition_with_express_non_inclusion']
+17:46:10 | INFO  | __main__                  | Phase 2: Core RAG Extraction...
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 7 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 4 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:46:10 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:46:17 | WARNING | __main__                  | LLM error: Error code: 400 - {'error': {'message': "The response was filtered due to the prompt triggering Azure OpenAI's content management policy. Please modify your prompt and retry. To learn more about our content filtering policies please read our documentation: https://go.microsoft.com/fwlink/?linkid=2198766", 'type': None, 'param': 'prompt', 'code': 'content_filter', 'status': 400, 'innererror': {'code': 'ResponsibleAIPolicyViolation', 'content_filter_result': {'hate': {'filtered': False, 'severity': 'safe'}, 'jailbreak': {'detected': False, 'filtered': False}, 'self_harm': {'filtered': True, 'severity': 'medium'}, 'sexual': {'filtered': False, 'severity': 'safe'}, 'violence': {'filtered': False, 'severity': 'safe'}}}}}
+17:47:13 | INFO  | __main__                  |   Extraction: 33 values in 63.26s
+17:47:13 | INFO  | __main__                  |   Retries: 351, Reviewer rejections: 12
+17:47:13 | INFO  | __main__                  |   Metrics: fill=15.7%, verbatim=78.8%, halluc=18.2%
+17:47:13 | INFO  | __main__                  | 
+================================================================================
+17:47:13 | INFO  | __main__                  | CLUSTER: Stock option grants (ct_5a3f3343) — 78 chunks
+17:47:13 | INFO  | __main__                  | ================================================================================
+17:47:13 | INFO  | __main__                  | Phase 1: RLM V3 Discovery...
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 153.64it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 127.00it/s]
+17:47:37 | INFO  | core.latent_briefing      | Text Latent Briefing: 109 → 0 tokens (100.0% compressed, 0.011s, τ=1.55, 1/1 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 198.37it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 227.42it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 120.60it/s]
+17:48:02 | INFO  | core.latent_briefing      | Text Latent Briefing: 319 → 90 tokens (71.8% compressed, 0.011s, τ=1.6, 0/3 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 181.39it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 209.18it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 112.90it/s]
+17:48:53 | INFO  | core.latent_briefing      | Text Latent Briefing: 447 → 86 tokens (80.8% compressed, 0.012s, τ=1.65, 0/5 segments retained)
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 182.27it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 172.98it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 209.88it/s]
+Batches:   0%|          | 0/1 [00:00<?, ?it/s]Batches: 100%|██████████| 1/1 [00:00<00:00, 114.73it/s]
+17:49:22 | INFO  | __main__                  |   Discovery: 28 fields in 129.66s
+17:49:22 | INFO  | __main__                  |   Fields: ['grantor', 'grantee', 'option_type', 'underlying_security', 'grant_condition', 'grant_frequency', 'grant_period', 'grant_amount_determined', 'option_plan', 'initial_grant', 'second_grant', 'exercise_price', 'expiration_date', 'grant_documentation', 'option_quantity', 'share_class', 'grant_timing', 'vesting_trigger', 'exercise_period_end', 'plan_name', 'approval_requirement', 'governing_option_document', 'continued_service_or_term_condition', 'percentage_of_share_capital', 'board_discretion_range', 'transaction_trigger', 'transaction_value_threshold', 'periodic_grant_formula']
+17:49:22 | INFO  | __main__                  | Phase 2: Core RAG Extraction...
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 2 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 5 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 2 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 1 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 2 chunks, dim=384
+17:49:23 | INFO  | core.retrieval            | HybridRetriever initialized: 2 chunks, dim=384
+17:51:20 | INFO  | __main__                  |   Extraction: 46 values in 117.06s
+17:51:20 | INFO  | __main__                  |   Retries: 446, Reviewer rejections: 23
+17:51:20 | INFO  | __main__                  |   Metrics: fill=16.4%, verbatim=80.4%, halluc=2.2%
+17:51:20 | INFO  | __main__                  | 
+Results saved to /home/azureuser/clustering-v2/hackathon/data/v3_vs_rag_comparison.json
+
+====================================================================================================
+ V3 PIPELINE vs HACKATHON RAG — EVALUATION COMPARISON
+====================================================================================================
+
+Cluster                             │ Pipeline     │ Fields │  Fill% │  Verb% │  Hall% │ Disc(s) │  Ext(s) │   Total
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Franchise agreement                 │ V3 NEW       │     43 │ 18.4% │ 86.1% │  0.0% │    87.6 │   118.2 │   205.8
+                                    │ Prev RAG     │     15 │ 100.0% │ 86.7% │  0.0% │     4.5 │    13.1 │    17.6
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Offering Allocation Compliance      │ V3 NEW       │     24 │ 10.8% │ 69.2% │  0.0% │    77.5 │    68.8 │   146.3
+                                    │ Prev RAG     │     13 │ 100.0% │ 100.0% │  0.0% │     3.5 │    10.7 │    14.2
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Website Co-Branding Agreement       │ V3 NEW       │     37 │ 91.9% │ 73.5% │  0.0% │   129.6 │    32.1 │   161.7
+                                    │ Prev RAG     │     13 │ 100.0% │ 84.6% │  0.0% │    12.7 │    11.5 │    24.2
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Defined Terms and Exceptions        │ V3 NEW       │     21 │ 15.7% │ 78.8% │ 18.2% │    85.7 │    63.3 │   148.9
+                                    │ Prev RAG     │     12 │ 91.7% │ 100.0% │  0.0% │     6.0 │    11.8 │    17.8
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+Stock option grants                 │ V3 NEW       │     28 │ 16.4% │ 80.4% │  2.2% │   129.7 │   117.1 │   246.7
+                                    │ Prev RAG     │     13 │ 100.0% │ 100.0% │  0.0% │     3.9 │    10.1 │    13.9
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+AVERAGE                             │ V3 NEW       │   30.6 │ 30.6% │ 77.6% │  4.1% │   102.0 │    79.9 │   181.9
+                                    │ Prev RAG     │   13.2 │ 98.3% │ 94.3% │  0.0% │     6.1 │    11.4 │    17.5
+
+DELTA (V3 - Prev)                   │              │        │ -67.7% │        │ +4.1% │         │         │  +164.4
+
+====================================================================================================
+WINNER: Prev RAG (better on both fill and hallucination)
+====================================================================================================

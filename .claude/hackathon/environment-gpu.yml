@@ -1,0 +1,30 @@
+# RAPIDS/cuML environment for GPU-accelerated clustering.
+#
+# Usage:
+#   conda env create -f environment-gpu.yml
+#   conda activate clustering-v2-gpu
+#   poetry install  # install remaining PyPI deps into the conda env
+#
+# RAPIDS (cuML, cuDF, cuPy) must be installed via conda — not available on PyPI.
+# All other deps are managed by Poetry/pip inside this conda env.
+
+name: clustering-v2-gpu
+channels:
+  - rapidsai
+  - conda-forge
+  - nvidia
+  - defaults
+
+dependencies:
+  - python=3.10
+  - cuda-version=12.2
+
+  # ── RAPIDS GPU libraries ───────────────────────────────────────────
+  - cuml=24.06
+  - cudf=24.06
+  - cupy
+
+  # ── pip (let Poetry handle the rest) ───────────────────────────────
+  - pip
+  - pip:
+    - poetry>=1.8.0

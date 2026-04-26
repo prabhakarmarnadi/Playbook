@@ -1,0 +1,78 @@
+{
+  "_meta": {
+    "version": "1.0",
+    "created": "2026-04-03",
+    "description": "Gold standard for EVoC pipeline evaluation. 50 hand-annotated documents.",
+    "annotator": "",
+    "pipeline_version": ""
+  },
+  "documents": [
+    {
+      "agreement_id": "agr_EXAMPLE01",
+      "filename": "example_nda.pdf",
+      "domain_label": "Non-Disclosure Agreements",
+      "clauses": [
+        {
+          "clause_id": "cls_EXAMPLE01_01",
+          "clause_title": "Confidentiality Obligations",
+          "gold_cluster_label": "Confidentiality Obligations",
+          "gold_intents": [
+            {
+              "label": "obligation_to_maintain_confidentiality",
+              "summary": "Receiving party must keep disclosed information confidential",
+              "party_from": "Receiving Party",
+              "party_to": "Disclosing Party",
+              "is_actionable": true,
+              "is_faithful": true
+            }
+          ],
+          "gold_fields": [
+            {
+              "field_name": "Confidentiality Period",
+              "field_type": "duration",
+              "expected_value": "3 years"
+            },
+            {
+              "field_name": "Governing Law",
+              "field_type": "text",
+              "expected_value": "State of California"
+            }
+          ]
+        },
+        {
+          "clause_id": "cls_EXAMPLE01_02",
+          "clause_title": "Term and Termination",
+          "gold_cluster_label": "Term and Termination",
+          "gold_intents": [
+            {
+              "label": "right_to_terminate",
+              "summary": "Either party may terminate the agreement with 30 days written notice",
+              "party_from": "Either Party",
+              "party_to": "Either Party",
+              "is_actionable": true,
+              "is_faithful": true
+            }
+          ],
+          "gold_fields": [
+            {
+              "field_name": "Notice Period",
+              "field_type": "duration",
+              "expected_value": "30 days"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "cluster_ground_truth": {
+    "_comment": "Map of clause_id -> expected cluster label. Built from the clauses above.",
+    "cls_EXAMPLE01_01": "Confidentiality Obligations",
+    "cls_EXAMPLE01_02": "Term and Termination"
+  },
+  "field_ground_truth": {
+    "_comment": "Map of (agreement_id, field_name) -> expected_value",
+    "agr_EXAMPLE01::Confidentiality Period": "3 years",
+    "agr_EXAMPLE01::Governing Law": "State of California",
+    "agr_EXAMPLE01::Notice Period": "30 days"
+  }
+}

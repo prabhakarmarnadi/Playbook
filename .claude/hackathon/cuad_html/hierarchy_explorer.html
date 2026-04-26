@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EVoC Hierarchy Explorer</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+<style>
+:root {
+  --bg:#0d1117;--surface:#161b22;--border:#30363d;
+  --text:#e6edf3;--text-dim:#8b949e;--accent:#58a6ff;
+  --green:#3fb950;--orange:#d29922;--red:#f85149;
+  --purple:#bc8cff;--pink:#f778ba;--cyan:#39d2c0;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+     background:var(--bg);color:var(--text);overflow:hidden;height:100vh;}
+
+#topbar{display:flex;align-items:center;justify-content:space-between;
+        background:var(--surface);border-bottom:1px solid var(--border);
+        padding:8px 16px;height:48px;}
+#topbar h1{font-size:16px;font-weight:600;}
+.view-btn{display:inline-block;padding:4px 12px;border-radius:4px;font-size:11px;
+           cursor:pointer;border:1px solid var(--border);background:var(--bg);
+           color:var(--text);margin:0 2px;transition:all .15s;}
+.view-btn.active{background:var(--accent);color:#000;border-color:var(--accent);}
+.view-btn:hover:not(.active){background:rgba(88,166,255,.1);}
+
+#main{display:flex;height:calc(100vh - 48px);}
+
+#sidebar{width:300px;min-width:300px;background:var(--surface);
+         border-right:1px solid var(--border);padding:14px;overflow-y:auto;}
+#sidebar h3{font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+            color:var(--text-dim);margin:14px 0 8px;}
+#sidebar h3:first-child{margin-top:0;}
+
+.layer-card{display:flex;align-items:center;gap:10px;padding:8px 10px;
+            border-radius:6px;margin:4px 0;background:rgba(255,255,255,.03);
+            border:1px solid var(--border);}
+.layer-icon{font-size:18px;width:28px;text-align:center;flex-shrink:0;}
+.layer-info{flex:1;}
+.layer-name{font-size:12px;font-weight:600;}
+.layer-count{font-size:18px;font-weight:700;color:var(--accent);}
+.flow-arrow{text-align:center;color:var(--text-dim);font-size:14px;margin:2px 0;}
+
+.run-section{margin:8px 0;padding:10px;border-radius:8px;
+             background:rgba(255,255,255,.02);border:1px solid var(--border);}
+.run-title{font-weight:700;font-size:13px;margin-bottom:6px;}
+.run-desc{font-size:11px;color:var(--text-dim);line-height:1.4;}
+.merge-card{margin:6px 0;padding:8px;border-radius:6px;
+            background:rgba(88,166,255,.04);border:1px solid rgba(88,166,255,.15);
+            font-size:11px;line-height:1.5;}
+.merge-title{font-weight:600;color:var(--accent);font-size:11px;margin-bottom:3px;}
+.merge-arrow{color:var(--orange);font-weight:700;}
+.merge-result{color:var(--green);font-weight:600;}
+
+.cluster-pill{display:inline-block;padding:2px 6px;border-radius:10px;
+              font-size:10px;margin:1px;background:rgba(255,255,255,.06);
+              border:1px solid var(--border);white-space:nowrap;}
+
+#canvas{flex:1;position:relative;overflow:hidden;}
+#canvas svg{width:100%;height:100%;}
+
+#tooltip{position:fixed;padding:12px 16px;background:rgba(22,27,34,.97);
+         border:1px solid var(--border);border-radius:8px;font-size:12px;
+         pointer-events:none;z-index:100;display:none;max-width:400px;
+         box-shadow:0 8px 24px rgba(0,0,0,.6);}
+#tooltip .tt-title{font-weight:700;margin-bottom:6px;font-size:14px;}
+#tooltip .tt-sub{color:var(--text-dim);font-size:11px;margin-bottom:4px;}
+#tooltip .tt-meta{color:var(--text-dim);line-height:1.6;}
+#tooltip .tt-meta b{color:var(--text);font-weight:600;}
+#tooltip .tt-labels{margin-top:6px;padding-top:6px;border-top:1px solid var(--border);}
+#tooltip .tt-label-item{font-size:11px;color:var(--text-dim);padding:1px 0;}
+#tooltip .tt-label-item b{color:var(--green);}
+#tooltip .tt-fields{margin-top:4px;}
+#tooltip .tt-field{display:inline-block;padding:1px 5px;border-radius:8px;
+                  font-size:10px;background:rgba(188,140,255,.12);
+                  color:var(--purple);margin:1px;}
+
+.sel-ring{stroke:var(--accent);stroke-width:2;stroke-dasharray:4,2;fill:none;}
+
+.ontology-link{display:inline-block;margin-top:8px;padding:4px 10px;
+               border-radius:4px;font-size:10px;background:rgba(88,166,255,.08);
+               border:1px solid rgba(88,166,255,.3);color:var(--accent);
+               cursor:pointer;text-decoration:none;}
+.ontology-link:hover{background:rgba(88,166,255,.15);}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>EVoC Hierarchy Explorer</h1>
+  <div>
+    <button class="view-btn active" data-view="tree">Legal Hierarchy</button>
+    <button class="view-btn" data-view="alluvial">Alluvial Flow</button>
+    <button class="view-btn" data-view="stack">Layer Stack</button>
+    <button class="view-btn" data-view="dual">Dual Track</button>
+  </div>
+  <div style="font-size:11px;color:var(--text-dim);" id="stats-bar"></div>
+</div>
+
+<div id="main">
+  <div id="sidebar"></div>
+  <div id="canvas"></div>
+</div>
+<div id="tooltip"></div>
+
+<script>
+let DATA=null, activeView='tree';
+const tooltip=document.getElementById('tooltip');
+const COLORS=['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#f778ba',
+  '#79c0ff','#56d364','#e3b341','#ff7b72','#d2a8ff','#ff9bce',
+  '#a5d6ff','#7ee787','#f0c94d','#ffa198','#39d2c0','#ff6b6b',
+  '#4ecdc4','#45b7d1','#96ceb4','#ffeaa7','#dda0dd','#98d8c8'];
+
+function esc(s){const d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+function hideTooltip(){tooltip.style.display='none';}
+function showTooltip(ev,html){
+  tooltip.innerHTML=html;tooltip.style.display='block';
+  const tt=tooltip.getBoundingClientRect();
+  tooltip.style.left=Math.min(ev.clientX+14,innerWidth-tt.width-20)+'px';
+  tooltip.style.top=Math.min(ev.clientY-10,innerHeight-tt.height-20)+'px';
+}
+function truncName(s,n){return s.length>n?s.slice(0,n-2)+'..':s;}
+
+async function loadData(){
+  const resp=await fetch('data/hierarchy_viz.json');
+  DATA=await resp.json();
+  document.querySelectorAll('.view-btn').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+  switchView('tree');
+}
+
+function switchView(v){
+  activeView=v;
+  document.querySelectorAll('.view-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
+  document.getElementById('canvas').innerHTML='';
+  buildSidebar(v);buildStatsBar();
+  if(v==='tree')buildTree();
+  else if(v==='alluvial')buildAlluvial();
+  else if(v==='stack')buildStack();
+  else if(v==='dual')buildDual();
+}
+
+/* ─────────────────── SIDEBAR ─────────────────── */
+function buildSidebar(view){
+  const sb=document.getElementById('sidebar');
+  const s=DATA.summary;
+  let html='<h3>Pipeline Overview</h3>';
+  s.layers.forEach((l,i)=>{
+    html+=`<div class="layer-card">
+      <div class="layer-icon">${l.icon}</div>
+      <div class="layer-info"><div class="layer-name">${l.name}</div>
+      <div class="layer-count" style="color:${l.color}">${l.count.toLocaleString()}</div></div>
+    </div>`;
+    if(i<s.layers.length-1)html+='<div class="flow-arrow">↓</div>';
+  });
+
+  html+='<h3>EVoC Clustering Layers</h3>';
+  for(const[run,layers] of Object.entries(DATA.layer_stacks)){
+    const color=run.includes('clause')?'var(--green)':'var(--orange)';
+    html+=`<div class="run-section">
+      <div class="run-title" style="color:${color}">${run.toUpperCase()}</div>`;
+    layers.forEach(l=>{
+      const sel=l.is_selected?'<span style="color:var(--accent);font-size:9px;font-weight:700;"> ★ SELECTED</span>':'';
+      html+=`<div style="padding:4px 0;font-size:11px;">
+        <b>Layer ${l.layer_index}</b>${sel}: ${esc(l.description)}
+        <span style="color:var(--text-dim);"> (comp: ${l.composite_score!=null?l.composite_score.toFixed(3):'?'})</span>
+      </div>`;
+      const top3=l.clusters.slice(0,3);
+      html+=`<div style="padding:0 0 4px 10px;">`;
+      top3.forEach(c=>{
+        html+=`<span class="cluster-pill">${esc(truncName(c.name,28))} (${c.count})</span>`;
+      });
+      if(l.clusters.length>3)html+=`<span class="cluster-pill" style="color:var(--text-dim);">+${l.clusters.length-3} more</span>`;
+      html+=`</div>`;
+    });
+    html+=`</div>`;
+  }
+
+  if(view==='tree'||view==='alluvial'){
+    html+='<h3>How Layers Merge</h3>';
+    for(const[run,runMerges] of Object.entries(DATA.merges||{})){
+      const color=run.includes('clause')?'var(--green)':'var(--orange)';
+      runMerges.forEach(mg=>{
+        html+=`<div class="merge-card">
+          <div class="merge-title" style="color:${color}">${esc(run.toUpperCase())}: ${esc(mg.description)}</div>`;
+        mg.notable_merges.slice(0,4).forEach(nm=>{
+          const srcNames=nm.sources.slice(0,3).map(s=>esc(truncName(s.name,20)));
+          html+=`<div style="margin:3px 0;font-size:10px;">
+            <span style="color:var(--text-dim)">${srcNames.join(' + ')}</span>
+            <span class="merge-arrow"> → </span>
+            <span class="merge-result">${esc(truncName(nm.result_name,24))}</span>
+          </div>`;
+        });
+        if(mg.notable_merges.length>4)html+=`<div style="color:var(--text-dim);font-size:10px;">+${mg.notable_merges.length-4} more merges</div>`;
+        html+=`</div>`;
+      });
+    }
+  }
+
+  html+=`<h3>Connected Views</h3>
+    <a class="ontology-link" href="ontology_explorer.html" target="_blank">Open Ontology Explorer →</a>
+    <div style="font-size:10px;color:var(--text-dim);margin-top:4px;">
+      View cluster network, fields, intents, and agreement similarity
+    </div>`;
+  sb.innerHTML=html;
+}
+
+function buildStatsBar(){
+  const s=DATA.summary;
+  document.getElementById('stats-bar').innerHTML=
+    `<span style="color:var(--accent)">${s.total_agreements}</span> docs · `+
+    `<span style="color:var(--green)">${s.total_clusters}</span> clusters · `+
+    `<span style="color:var(--orange)">${s.total_domains}</span> domains · `+
+    `<span style="color:var(--purple)">${s.total_fields}</span> fields`;
+}
+
+/* ─────────── LEGAL HIERARCHY (Icicle Tree) ─────────── */
+function buildTree(){
+  const canvas=document.getElementById('canvas');
+  const W=canvas.clientWidth,H=canvas.clientHeight;
+  const svg=d3.select('#canvas').append('svg').attr('width',W).attr('height',H);
+  const margin={top:50,bottom:20,left:20,right:20};
+  const g=svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
+  const iW=W-margin.left-margin.right;
+  const iH=H-margin.top-margin.bottom;
+  const runs=Object.keys(DATA.layer_stacks);
+  const nRuns=runs.length;
+  const colGap=40;
+  const colW=(iW-colGap*(nRuns-1))/nRuns;
+
+  runs.forEach((run,ri)=>{
+    const layers=DATA.layer_stacks[run];
+    if(!layers.length)return;
+    const x0=ri*(colW+colGap);
+    const gRun=g.append('g').attr('transform',`translate(${x0},0)`);
+    const color=run.includes('clause')?'var(--green)':'var(--orange)';
+    const nLayers=layers.length;
+    const layerH=Math.min(160,(iH-60)/(nLayers));
+    const gap=12;
+
+    gRun.append('text').attr('x',colW/2).attr('y',-20)
+      .attr('text-anchor','middle').attr('fill',color)
+      .style('font-size','14px').style('font-weight','700')
+      .text(run.toUpperCase()+' HIERARCHY');
+    gRun.append('text').attr('x',colW/2).attr('y',-6)
+      .attr('text-anchor','middle').attr('fill','var(--text-dim)')
+      .style('font-size','10px')
+      .text(layers.map(l=>`L${l.layer_index}: ${l.n_clusters}`).join(' → ')+' clusters');
+
+    const layerNodePositions=[];
+
+    layers.forEach((layer,li)=>{
+      const y=li*(layerH+gap);
+      const clusters=layer.clusters;
+      const totalItems=d3.sum(clusters,c=>c.count);
+      const usableW=colW-10;
+      const blockGap=2;
+      const totalGap=blockGap*(clusters.length-1);
+      const scale=d3.scaleLinear().domain([0,totalItems]).range([0,usableW-totalGap]);
+
+      let cx=5;
+      const positions=[];
+      const blockH=Math.min(layerH-28,40);
+
+      const selBadge=layer.is_selected?' ★':'';
+      gRun.append('text').attr('x',5).attr('y',y+12)
+        .attr('fill',layer.is_selected?'var(--accent)':'var(--text-dim)')
+        .style('font-size','11px').style('font-weight','600')
+        .text(`Layer ${layer.layer_index}${selBadge}: ${layer.description}`);
+
+      clusters.forEach((c,ci)=>{
+        const bw=Math.max(3,scale(c.count));
+        const by=y+18;
+        const col=COLORS[ci%COLORS.length];
+        const opacity=layer.is_selected?0.75:0.5;
+
+        gRun.append('rect')
+          .attr('x',cx).attr('y',by)
+          .attr('width',bw).attr('height',blockH)
+          .attr('fill',col).attr('fill-opacity',opacity)
+          .attr('rx',3).attr('stroke',layer.is_selected?col:'none').attr('stroke-width',1)
+          .on('mouseover',(ev)=>{
+            let html=`<div class="tt-title">${esc(c.name)}</div>
+              <div class="tt-sub">Layer ${layer.layer_index} · ${layer.description}</div>
+              <div class="tt-meta"><b>${c.count.toLocaleString()}</b> items`;
+            if(layer.is_selected)html+=' · <span style="color:var(--accent)">SELECTED</span>';
+            html+=`</div>`;
+            if(c.top_labels&&c.top_labels.length){
+              html+=`<div class="tt-labels"><div style="font-size:10px;font-weight:600;margin-bottom:2px;">Composed of:</div>`;
+              c.top_labels.forEach(tl=>{
+                const pct=c.count>0?Math.round(tl.count/c.count*100):'?';
+                html+=`<div class="tt-label-item"><b>${tl.count}</b> ${esc(tl.label)} (${pct}%)</div>`;
+              });
+              html+=`</div>`;
+            }
+            showTooltip(ev,html);
+          })
+          .on('mouseout',hideTooltip);
+
+        if(bw>30){
+          const labelText=truncName(c.name, Math.floor(bw/5.5));
+          gRun.append('text')
+            .attr('x',cx+bw/2).attr('y',by+blockH/2)
+            .attr('dy','.35em').attr('text-anchor','middle')
+            .attr('fill','#fff').style('font-size','9px').style('font-weight','500')
+            .attr('pointer-events','none')
+            .text(labelText);
+        }
+
+        positions.push({evoc_label:c.evoc_label, x:cx, y:by, w:bw, h:blockH, name:c.name});
+        cx+=bw+blockGap;
+      });
+
+      if(layer.n_outliers>0){
+        gRun.append('text')
+          .attr('x',colW-5).attr('y',y+18+blockH+12)
+          .attr('text-anchor','end').attr('fill','var(--red)')
+          .style('font-size','9px').style('font-style','italic')
+          .text(`${layer.n_outliers.toLocaleString()} outliers`);
+      }
+
+      layerNodePositions.push(positions);
+    });
+
+    // Merge lines between layers
+    const allAssigns=DATA.alluvial[run];
+    if(!allAssigns)return;
+
+    for(let li=0;li<layerNodePositions.length-1;li++){
+      const fromPos=layerNodePositions[li];
+      const toPos=layerNodePositions[li+1];
+      const layerFrom=layers[li].layer_index;
+      const layerTo=layers[li+1].layer_index;
+      const fromPosMap={};fromPos.forEach((p,i)=>{fromPosMap[p.evoc_label]=i;});
+      const toPosMap={};toPos.forEach((p,i)=>{toPosMap[p.evoc_label]=i;});
+
+      allAssigns.links.forEach(link=>{
+        const srcNode=allAssigns.nodes[link.source];
+        const tgtNode=allAssigns.nodes[link.target];
+        if(!srcNode||!tgtNode)return;
+        if(srcNode.layer!==layerFrom||tgtNode.layer!==layerTo)return;
+        if(srcNode.is_outlier||tgtNode.is_outlier)return;
+
+        const fi=fromPosMap[srcNode.cluster_label];
+        const ti=toPosMap[tgtNode.cluster_label];
+        if(fi===undefined||ti===undefined)return;
+
+        const fp=fromPos[fi];
+        const tp=toPos[ti];
+        const y1=fp.y+fp.h;
+        const y2=tp.y;
+        const x1=fp.x+fp.w/2;
+        const x2=tp.x+tp.w/2;
+        const maxVal=d3.max(allAssigns.links,l=>l.value)||1;
+        const opacity=Math.max(0.04,Math.min(0.3,link.value/maxVal));
+        const sw=Math.max(0.5,Math.sqrt(link.value/maxVal)*4);
+
+        gRun.append('path')
+          .attr('d',`M${x1},${y1} C${x1},${(y1+y2)/2} ${x2},${(y1+y2)/2} ${x2},${y2}`)
+          .attr('fill','none').attr('stroke',COLORS[fi%COLORS.length])
+          .attr('stroke-opacity',opacity).attr('stroke-width',sw)
+          .on('mouseover',function(ev){
+            d3.select(this).attr('stroke-opacity',0.6).attr('stroke-width',sw*2);
+            showTooltip(ev,`<div class="tt-title">${esc(fp.name)} → ${esc(tp.name)}</div>
+              <div class="tt-meta"><b>${link.value}</b> items flow between layers</div>`);
+          })
+          .on('mouseout',function(){
+            d3.select(this).attr('stroke-opacity',opacity).attr('stroke-width',sw);
+            hideTooltip();
+          });
+      });
+    }
+  });
+}
+
+/* ─────────── ALLUVIAL FLOW (Named) ─────────── */
+function buildAlluvial(){
+  const canvas=document.getElementById('canvas');
+  const W=canvas.clientWidth,H=canvas.clientHeight;
+  const svg=d3.select('#canvas').append('svg').attr('width',W).attr('height',H);
+  const runs=Object.keys(DATA.alluvial);
+  const nRuns=runs.length;
+  const runWidth=(W-40)/nRuns;
+
+  runs.forEach((run,ri)=>{
+    const al=DATA.alluvial[run];
+    if(!al.nodes.length)return;
+    const x0=ri*runWidth+20;
+    const g=svg.append('g').attr('transform',`translate(${x0},50)`);
+    const sW=runWidth-40, sH=H-100;
+
+    g.append('text').attr('x',sW/2).attr('y',-26)
+      .attr('text-anchor','middle')
+      .attr('fill',run.includes('clause')?'var(--green)':'var(--orange)')
+      .style('font-size','14px').style('font-weight','700')
+      .text(run.toUpperCase()+' — Layer Flow');
+
+    const layerDescs=DATA.layer_stacks[run]||[];
+    g.append('text').attr('x',sW/2).attr('y',-10)
+      .attr('text-anchor','middle').attr('fill','var(--text-dim)')
+      .style('font-size','10px')
+      .text(layerDescs.map(l=>`L${l.layer_index}: ${l.n_clusters} clusters`).join(' → '));
+
+    const graph={
+      nodes:al.nodes.map((n,i)=>({...n,index:i})),
+      links:al.links.map(l=>({...l})),
+    };
+
+    try{
+      const sankey=d3.sankey()
+        .nodeId(d=>d.index)
+        .nodeWidth(18).nodePadding(4)
+        .nodeAlign(d3.sankeyLeft)
+        .extent([[0,0],[sW,sH]]);
+      sankey(graph);
+    }catch(e){
+      g.append('text').attr('x',sW/2).attr('y',sH/2)
+        .attr('text-anchor','middle').attr('fill','var(--red)')
+        .text('Sankey layout failed: '+e.message);
+      return;
+    }
+
+    g.append('g').selectAll('path').data(graph.links).enter().append('path')
+      .attr('d',d3.sankeyLinkHorizontal())
+      .attr('fill','none')
+      .attr('stroke',d=>{
+        const src=graph.nodes[d.source.index];
+        return src.is_outlier?'var(--red)':
+          src.is_selected?'var(--accent)':COLORS[src.cluster_label%COLORS.length];
+      })
+      .attr('stroke-opacity',.2)
+      .attr('stroke-width',d=>Math.max(1,d.width))
+      .on('mouseover',function(ev,d){
+        d3.select(this).attr('stroke-opacity',.5);
+        const src=graph.nodes[d.source.index];
+        const tgt=graph.nodes[d.target.index];
+        showTooltip(ev,`<div class="tt-title">${esc(src.semantic_name)} → ${esc(tgt.semantic_name)}</div>
+          <div class="tt-sub">Layer ${src.layer} → Layer ${tgt.layer}</div>
+          <div class="tt-meta"><b>${d.value}</b> items flow</div>`);
+      })
+      .on('mouseout',function(){d3.select(this).attr('stroke-opacity',.2);hideTooltip();});
+
+    const nodeG=g.append('g').selectAll('g').data(graph.nodes).enter().append('g');
+    nodeG.append('rect')
+      .attr('x',d=>d.x0).attr('y',d=>d.y0)
+      .attr('width',d=>d.x1-d.x0)
+      .attr('height',d=>Math.max(2,d.y1-d.y0))
+      .attr('fill',d=>d.is_outlier?'var(--red)':
+        d.is_selected?'var(--accent)':COLORS[d.cluster_label%COLORS.length])
+      .attr('fill-opacity',.8).attr('rx',2)
+      .on('mouseover',(ev,d)=>{
+        let html=`<div class="tt-title">${esc(d.semantic_name)}</div>
+          <div class="tt-sub">Layer ${d.layer}${d.is_selected?' · SELECTED':''}</div>
+          <div class="tt-meta"><b>${d.count.toLocaleString()}</b> items</div>`;
+        if(d.top_labels&&d.top_labels.length){
+          html+=`<div class="tt-labels"><div style="font-size:10px;font-weight:600;margin-bottom:2px;">Composed of:</div>`;
+          d.top_labels.forEach(tl=>{
+            html+=`<div class="tt-label-item"><b>${tl.count}</b> ${esc(tl.label)}</div>`;
+          });
+          html+=`</div>`;
+        }
+        showTooltip(ev,html);
+      })
+      .on('mouseout',hideTooltip);
+
+    nodeG.filter(d=>d.is_selected&&!d.is_outlier).append('rect')
+      .attr('class','sel-ring')
+      .attr('x',d=>d.x0-3).attr('y',d=>d.y0-2)
+      .attr('width',d=>d.x1-d.x0+6).attr('height',d=>Math.max(2,d.y1-d.y0)+4)
+      .attr('rx',4);
+
+    nodeG.filter(d=>(d.y1-d.y0)>14&&!d.is_outlier).append('text')
+      .attr('x',d=>d.x1+4).attr('y',d=>(d.y0+d.y1)/2)
+      .attr('dy','.35em').attr('fill','var(--text)').style('font-size','9px')
+      .text(d=>truncName(d.semantic_name,20)+` (${d.count})`);
+
+    const layerSet=[...new Set(al.nodes.map(n=>n.layer))].sort((a,b)=>a-b);
+    layerSet.forEach(li=>{
+      const firstNode=graph.nodes.find(n=>n.layer===li);
+      const desc=layerDescs.find(l=>l.layer_index===li);
+      if(firstNode){
+        g.append('text').attr('x',firstNode.x0+9).attr('y',sH+16)
+          .attr('text-anchor','middle').attr('fill','var(--text-dim)')
+          .style('font-size','10px').style('font-weight','600')
+          .text(`L${li}`);
+        if(desc){
+          g.append('text').attr('x',firstNode.x0+9).attr('y',sH+28)
+            .attr('text-anchor','middle').attr('fill','var(--text-dim)')
+            .style('font-size','8px')
+            .text(`${desc.n_clusters}cl`);
+        }
+      }
+    });
+  });
+}
+
+/* ─────────── LAYER STACK (enriched) ─────────── */
+function buildStack(){
+  const canvas=document.getElementById('canvas');
+  const W=canvas.clientWidth,H=canvas.clientHeight;
+  const svg=d3.select('#canvas').append('svg').attr('width',W).attr('height',H);
+  const g=svg.append('g').attr('transform','translate(40,30)');
+  const runs=Object.keys(DATA.layer_stacks);
+  const nRuns=runs.length;
+  const runWidth=(W-80)/nRuns;
+
+  runs.forEach((run,ri)=>{
+    const layers=DATA.layer_stacks[run];
+    const x0=ri*runWidth;
+    const gRun=g.append('g').attr('transform',`translate(${x0},0)`);
+
+    gRun.append('text').attr('x',runWidth/2).attr('y',-8)
+      .attr('text-anchor','middle')
+      .attr('fill',run.includes('clause')?'var(--green)':'var(--orange)')
+      .style('font-size','13px').style('font-weight','700')
+      .text(run.toUpperCase());
+
+    const layerH=Math.min(120,(H-100)/layers.length);
+    const gap=8;
+
+    layers.forEach((layer,li)=>{
+      const y=li*(layerH+gap);
+      const gL=gRun.append('g').attr('transform',`translate(0,${y})`);
+
+      gL.append('rect').attr('x',10).attr('y',0)
+        .attr('width',runWidth-20).attr('height',layerH)
+        .attr('rx',6).attr('fill',layer.is_selected?'rgba(88,166,255,.08)':'rgba(255,255,255,.02)')
+        .attr('stroke',layer.is_selected?'var(--accent)':'var(--border)')
+        .attr('stroke-width',layer.is_selected?2:1);
+
+      if(layer.is_selected){
+        gL.append('text').attr('x',runWidth-26).attr('y',14)
+          .attr('text-anchor','end').attr('fill','var(--accent)')
+          .style('font-size','9px').style('font-weight','700').text('★ SELECTED');
+      }
+
+      gL.append('text').attr('x',18).attr('y',16)
+        .attr('fill','var(--text)').style('font-size','12px').style('font-weight','700')
+        .text(`Layer ${layer.layer_index}: ${layer.description}`);
+
+      const metrics=[];
+      if(layer.composite_score!=null)metrics.push(`composite=${layer.composite_score.toFixed(3)}`);
+      if(layer.silhouette_score!=null)metrics.push(`sil=${layer.silhouette_score.toFixed(3)}`);
+      gL.append('text').attr('x',18).attr('y',30)
+        .attr('fill','var(--text-dim)').style('font-size','10px')
+        .text(`${layer.n_clusters} clusters · ${layer.n_outliers.toLocaleString()} outliers · ${metrics.join(' · ')}`);
+
+      const pillY=38;
+      let pillX=18;
+      layer.clusters.slice(0,6).forEach((c,ci)=>{
+        const label=truncName(c.name,18);
+        const tw=label.length*5.5+12;
+        if(pillX+tw>runWidth-20){return;}
+        gL.append('rect')
+          .attr('x',pillX).attr('y',pillY)
+          .attr('width',tw).attr('height',16).attr('rx',8)
+          .attr('fill',`${COLORS[ci%COLORS.length]}22`)
+          .attr('stroke',`${COLORS[ci%COLORS.length]}44`)
+          .on('mouseover',(ev)=>{
+            let html=`<div class="tt-title">${esc(c.name)}</div>
+              <div class="tt-meta"><b>${c.count.toLocaleString()}</b> items</div>`;
+            if(c.top_labels&&c.top_labels.length){
+              html+=`<div class="tt-labels"><div style="font-size:10px;font-weight:600;margin-bottom:2px;">Composed of:</div>`;
+              c.top_labels.forEach(tl=>{
+                html+=`<div class="tt-label-item"><b>${tl.count}</b> ${esc(tl.label)}</div>`;
+              });
+              html+=`</div>`;
+            }
+            showTooltip(ev,html);
+          })
+          .on('mouseout',hideTooltip);
+
+        gL.append('text')
+          .attr('x',pillX+tw/2).attr('y',pillY+11)
+          .attr('text-anchor','middle').attr('fill','var(--text)')
+          .style('font-size','9px').attr('pointer-events','none')
+          .text(label);
+        pillX+=tw+4;
+      });
+
+      const sizes=layer.cluster_sizes;
+      if(sizes.length>0){
+        const barY=pillY+22;
+        const barH=layerH-barY-8;
+        if(barH>8){
+          const barW=Math.max(1,(runWidth-50)/sizes.length-1);
+          const maxSz=d3.max(sizes);
+          sizes.forEach((sz,si)=>{
+            const bh=Math.max(1,sz/maxSz*barH);
+            gL.append('rect')
+              .attr('x',18+si*(barW+1)).attr('y',barY+(barH-bh))
+              .attr('width',barW).attr('height',bh)
+              .attr('fill',layer.is_selected?'var(--accent)':COLORS[si%COLORS.length])
+              .attr('fill-opacity',.5).attr('rx',1);
+          });
+        }
+      }
+
+      if(layer.persistence_score!=null){
+        const pNorm=Math.min(layer.persistence_score/5000,1);
+        gL.append('rect').attr('x',runWidth-18).attr('y',18)
+          .attr('width',4).attr('height',layerH-22)
+          .attr('fill','rgba(255,255,255,.06)').attr('rx',2);
+        gL.append('rect').attr('x',runWidth-18)
+          .attr('y',18+(layerH-22)*(1-pNorm))
+          .attr('width',4).attr('height',Math.max(1,(layerH-22)*pNorm))
+          .attr('fill','var(--purple)').attr('rx',2);
+      }
+
+      gL.on('mouseover',(ev)=>{
+        let html=`<div class="tt-title">Layer ${layer.layer_index}: ${esc(layer.description)}</div>
+          <div class="tt-meta">
+            <b>${layer.n_clusters}</b> clusters · <b>${layer.n_outliers.toLocaleString()}</b> outliers · <b>${layer.n_items.toLocaleString()}</b> items<br>`;
+        if(layer.persistence_score!=null)html+=`Persistence: <b>${layer.persistence_score.toFixed(2)}</b><br>`;
+        if(layer.silhouette_score!=null)html+=`Silhouette: <b>${layer.silhouette_score.toFixed(4)}</b><br>`;
+        if(layer.cosine_score!=null)html+=`Cosine: <b>${layer.cosine_score.toFixed(4)}</b><br>`;
+        if(layer.composite_score!=null)html+=`Composite: <b>${layer.composite_score.toFixed(4)}</b>`;
+        html+=`</div>`;
+        showTooltip(ev,html);
+      }).on('mouseout',hideTooltip);
+
+      if(li<layers.length-1){
+        const mg=(DATA.merges[run]||[]).find(m=>m.from_layer===layer.layer_index);
+        const arrowY=y+layerH+gap/2+2;
+        gRun.append('text').attr('x',runWidth/2).attr('y',arrowY)
+          .attr('text-anchor','middle').attr('fill','var(--text-dim)')
+          .style('font-size','10px').text('↓');
+        if(mg){
+          gRun.append('text').attr('x',runWidth/2+10).attr('y',arrowY)
+            .attr('fill','var(--orange)').style('font-size','9px')
+            .text(`${mg.notable_merges.length} merges`);
+        }
+      }
+    });
+  });
+}
+
+/* ─────────── DUAL TRACK ─────────── */
+function buildDual(){
+  const canvas=document.getElementById('canvas');
+  const W=canvas.clientWidth,H=canvas.clientHeight;
+  const svg=d3.select('#canvas').append('svg').attr('width',W).attr('height',H);
+  const dt=DATA.dual_track;
+  const margin={top:50,bottom:30,left:40,right:40};
+  const g=svg.append('g').attr('transform',`translate(${margin.left},${margin.top})`);
+  const iW=W-margin.left-margin.right, iH=H-margin.top-margin.bottom;
+
+  g.append('text').attr('x',iW*.25).attr('y',-26).attr('text-anchor','middle')
+    .attr('fill','var(--green)').style('font-size','14px').style('font-weight','700')
+    .text(`CLAUSE CLUSTERS (${dt.clause_selected?dt.clause_selected.n_clusters:'-'})`);
+  if(dt.clause_selected){
+    g.append('text').attr('x',iW*.25).attr('y',-10).attr('text-anchor','middle')
+      .attr('fill','var(--text-dim)').style('font-size','10px')
+      .text(`EVoC Layer ${dt.clause_selected.layer_index} · composite=${dt.clause_selected.composite_score}`);
+  }
+
+  g.append('text').attr('x',iW*.75).attr('y',-26).attr('text-anchor','middle')
+    .attr('fill','var(--orange)').style('font-size','14px').style('font-weight','700')
+    .text(`MACRO DOMAINS (${dt.macro_selected?dt.macro_selected.n_clusters:'-'})`);
+  if(dt.macro_selected){
+    g.append('text').attr('x',iW*.75).attr('y',-10).attr('text-anchor','middle')
+      .attr('fill','var(--text-dim)').style('font-size','10px')
+      .text(`EVoC Layer ${dt.macro_selected.layer_index} · composite=${dt.macro_selected.composite_score}`);
+  }
+
+  const cls=dt.top_clusters.slice(0,30);
+  const clH=Math.min(22,iH/cls.length);
+  const clsW=iW*.35;
+
+  cls.forEach((c,i)=>{
+    const y=i*clH;
+    const barW=Math.max(2,c.chunk_count/d3.max(cls,x=>x.chunk_count)*clsW*.7);
+    g.append('rect').attr('x',clsW-barW).attr('y',y+1)
+      .attr('width',barW).attr('height',clH-3)
+      .attr('fill','var(--green)').attr('fill-opacity',.5).attr('rx',2)
+      .on('mouseover',(ev)=>{
+        let html=`<div class="tt-title">${esc(c.name)}</div>
+          <div class="tt-meta"><b>${c.chunk_count}</b> chunks · <b>${c.agreement_count}</b> agreements · quality <b>${c.quality_score}</b></div>`;
+        if(c.fields&&c.fields.length){
+          html+=`<div class="tt-fields">`;
+          c.fields.forEach(f=>{html+=`<span class="tt-field">${esc(f)}</span>`;});
+          html+=`</div>`;
+        }
+        showTooltip(ev,html);
+      })
+      .on('mouseout',hideTooltip);
+    g.append('text').attr('x',clsW-barW-4).attr('y',y+clH/2)
+      .attr('dy','.35em').attr('text-anchor','end')
+      .attr('fill','var(--text)').style('font-size','9px')
+      .text(truncName(c.name,24));
+  });
+
+  const doms=dt.domains;
+  const domH=Math.min(30,iH/Math.max(1,doms.length));
+  const domX=iW*.65;
+  const domW=iW*.35;
+
+  doms.forEach((d,i)=>{
+    const y=i*domH;
+    const barW=Math.max(2,d.agreement_count/d3.max(doms,x=>x.agreement_count)*domW*.7);
+    g.append('rect').attr('x',domX).attr('y',y+1)
+      .attr('width',barW).attr('height',domH-3)
+      .attr('fill','var(--orange)').attr('fill-opacity',.5).attr('rx',2)
+      .on('mouseover',(ev)=>showTooltip(ev,
+        `<div class="tt-title">${esc(d.name)}</div>
+         <div class="tt-meta"><b>${d.agreement_count}</b> agreements</div>`))
+      .on('mouseout',hideTooltip);
+    g.append('text').attr('x',domX+barW+4).attr('y',y+domH/2)
+      .attr('dy','.35em').attr('fill','var(--text)').style('font-size','9px')
+      .text(truncName(d.name,24));
+  });
+
+  const flows=dt.cluster_domain_flows;
+  const clsIdxMap={};cls.forEach((c,i)=>{clsIdxMap[c.id]=i;});
+  const domIdxMap={};doms.forEach((d,i)=>{domIdxMap[d.id]=i;});
+  const maxFlow=d3.max(flows,f=>f.agreement_count)||1;
+
+  flows.forEach(f=>{
+    const ci=clsIdxMap[f.cluster_id];
+    const di=domIdxMap[f.domain_id];
+    if(ci===undefined||di===undefined)return;
+    const y1=ci*clH+clH/2;
+    const y2=di*domH+domH/2;
+    const x1=clsW+2;
+    const x2=domX-2;
+    const opacity=Math.max(.05,Math.min(.4,f.agreement_count/maxFlow));
+    g.append('path')
+      .attr('d',`M${x1},${y1} C${(x1+x2)/2},${y1} ${(x1+x2)/2},${y2} ${x2},${y2}`)
+      .attr('fill','none').attr('stroke','var(--accent)')
+      .attr('stroke-opacity',opacity)
+      .attr('stroke-width',Math.max(.5,Math.sqrt(f.agreement_count)))
+      .on('mouseover',function(ev){
+        d3.select(this).attr('stroke-opacity',.7).attr('stroke-width',Math.max(2,Math.sqrt(f.agreement_count)));
+        let html=`<div class="tt-title">${esc(f.cluster_name)} ↔ ${esc(f.domain_name)}</div>
+          <div class="tt-meta"><b>${f.agreement_count}</b> agreements bridge these</div>`;
+        if(f.cluster_fields&&f.cluster_fields.length){
+          html+=`<div class="tt-fields">Fields: `;
+          f.cluster_fields.forEach(fl=>{html+=`<span class="tt-field">${esc(fl)}</span>`;});
+          html+=`</div>`;
+        }
+        showTooltip(ev,html);
+      })
+      .on('mouseout',function(){
+        d3.select(this).attr('stroke-opacity',opacity).attr('stroke-width',Math.max(.5,Math.sqrt(f.agreement_count)));
+        hideTooltip();
+      });
+  });
+
+  g.append('text').attr('x',iW/2).attr('y',iH+16)
+    .attr('text-anchor','middle').attr('fill','var(--text-dim)').style('font-size','10px')
+    .text('Lines show agreements shared between clause clusters and macro domains (independent EVoC runs)');
+}
+
+loadData();
+</script>
+</body>
+</html>

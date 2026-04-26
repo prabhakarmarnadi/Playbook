@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EVoC Ontology Explorer</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --text-dim: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --orange: #d29922; --red: #f85149;
+    --purple: #bc8cff; --pink: #f778ba;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--text); overflow: hidden; height: 100vh; }
+
+  /* ── Top Bar ── */
+  #topbar { display: flex; align-items: center; justify-content: space-between;
+            background: var(--surface); border-bottom: 1px solid var(--border);
+            padding: 8px 16px; height: 48px; z-index: 10; }
+  #topbar h1 { font-size: 16px; font-weight: 600; }
+  #topbar .stats { display: flex; gap: 16px; font-size: 12px; color: var(--text-dim); }
+  #topbar .stats .stat-val { color: var(--accent); font-weight: 600; }
+
+  /* ── Main Layout ── */
+  #main { display: flex; height: calc(100vh - 48px); }
+
+  /* ── Left Sidebar (Controls) ── */
+  #controls { width: 240px; min-width: 240px; background: var(--surface);
+              border-right: 1px solid var(--border); padding: 12px;
+              overflow-y: auto; font-size: 13px; }
+  #controls h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+                 color: var(--text-dim); margin: 12px 0 6px 0; }
+  #controls h3:first-child { margin-top: 0; }
+  .filter-group { margin-bottom: 8px; }
+  .domain-chip { display: flex; align-items: center; gap: 6px; padding: 4px 8px;
+                 border-radius: 4px; cursor: pointer; margin: 2px 0;
+                 transition: background 0.15s; font-size: 12px; }
+  .domain-chip:hover { background: rgba(255,255,255,0.06); }
+  .domain-chip.active { background: rgba(88,166,255,0.15); }
+  .domain-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .domain-chip .count { margin-left: auto; color: var(--text-dim); font-size: 11px; }
+  .edge-toggle { display: flex; align-items: center; gap: 6px; padding: 4px 0;
+                 font-size: 12px; cursor: pointer; }
+  .edge-toggle input { accent-color: var(--accent); }
+  .slider-group { margin: 6px 0; }
+  .slider-group label { font-size: 11px; color: var(--text-dim); }
+  .slider-group input[type=range] { width: 100%; accent-color: var(--accent); }
+  #search { width: 100%; padding: 6px 8px; background: var(--bg); border: 1px solid var(--border);
+            border-radius: 4px; color: var(--text); font-size: 12px; outline: none; }
+  #search:focus { border-color: var(--accent); }
+  #search::placeholder { color: var(--text-dim); }
+  .view-btn { display: inline-block; padding: 4px 10px; border-radius: 4px;
+              font-size: 11px; cursor: pointer; border: 1px solid var(--border);
+              background: var(--bg); color: var(--text); margin: 2px; }
+  .view-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
+  .legend { font-size: 11px; color: var(--text-dim); margin-top: 12px; }
+  .legend-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .legend-line { width: 20px; height: 2px; }
+
+  /* ── Canvas Area ── */
+  #canvas-wrap { flex: 1; position: relative; }
+  svg { width: 100%; height: 100%; }
+  .node-label { font-size: 10px; fill: var(--text); pointer-events: none;
+                text-anchor: middle; dominant-baseline: central; }
+  .link { stroke-opacity: 0.3; }
+  .link:hover { stroke-opacity: 0.8; }
+
+  /* ── Right Sidebar (Detail Panel) ── */
+  #detail { width: 340px; min-width: 340px; background: var(--surface);
+            border-left: 1px solid var(--border); padding: 16px;
+            overflow-y: auto; display: none; }
+  #detail.open { display: block; }
+  #detail h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  #detail .domain-tag { display: inline-block; padding: 2px 8px; border-radius: 10px;
+                        font-size: 11px; margin-bottom: 8px; }
+  #detail .meta { font-size: 12px; color: var(--text-dim); margin-bottom: 12px; }
+  #detail .meta span { color: var(--text); font-weight: 500; }
+  #detail .section { margin-bottom: 14px; }
+  #detail .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+                           color: var(--text-dim); margin-bottom: 4px; }
+  .field-tag { display: inline-block; padding: 2px 6px; margin: 1px; border-radius: 3px;
+               font-size: 11px; background: rgba(88,166,255,0.12); color: var(--accent); }
+  .intent-row { display: flex; justify-content: space-between; padding: 2px 0;
+                font-size: 12px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .intent-row .ct { color: var(--text-dim); font-size: 11px; }
+  .neighbor-row { padding: 3px 0; font-size: 12px; cursor: pointer; color: var(--accent); }
+  .neighbor-row:hover { text-decoration: underline; }
+  #detail-close { position: absolute; top: 12px; right: 12px; cursor: pointer;
+                  color: var(--text-dim); font-size: 18px; line-height: 1; }
+  #detail-close:hover { color: var(--text); }
+
+  /* ── Tooltip ── */
+  #tooltip { position: fixed; padding: 8px 12px; background: rgba(22,27,34,0.95);
+             border: 1px solid var(--border); border-radius: 6px; font-size: 12px;
+             pointer-events: none; z-index: 100; display: none; max-width: 260px;
+             box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+  #tooltip .tt-title { font-weight: 600; margin-bottom: 2px; }
+  #tooltip .tt-meta { color: var(--text-dim); font-size: 11px; }
+
+  /* ── Tabs for views ── */
+  #tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <h1>EVoC Ontology Explorer</h1>
+  <div class="stats" id="stats-bar"></div>
+</div>
+
+<div id="main">
+  <!-- Left Controls -->
+  <div id="controls">
+    <input type="text" id="search" placeholder="Search clusters, intents…">
+
+    <h3>View</h3>
+    <div id="tabs">
+      <span class="view-btn active" data-view="graph">Clusters</span>
+      <span class="view-btn" data-view="agreements">Agreements</span>
+      <span class="view-btn" data-view="intents">Intents</span>
+      <span class="view-btn" data-view="matrix">Matrix</span>
+    </div>
+
+    <h3>Domains</h3>
+    <div id="domain-filters"></div>
+
+    <h3>Edge Types</h3>
+    <div id="edge-toggles"></div>
+
+    <h3>Node Size</h3>
+    <div class="slider-group">
+      <label>Scale: <span id="size-val">1.0</span></label>
+      <input type="range" id="size-slider" min="0.3" max="3" step="0.1" value="1">
+    </div>
+
+    <h3>Force</h3>
+    <div class="slider-group">
+      <label>Repulsion: <span id="force-val">-120</span></label>
+      <input type="range" id="force-slider" min="-400" max="-20" step="10" value="-120">
+    </div>
+
+    <div class="legend" id="legend-clusters">
+      <h3>Edge Legend</h3>
+      <div class="legend-row"><div class="legend-line" style="background:var(--accent)"></div> Centroid Similarity</div>
+      <div class="legend-row"><div class="legend-line" style="background:var(--green)"></div> Shared Fields</div>
+      <div class="legend-row"><div class="legend-line" style="background:var(--purple)"></div> Shared Intents</div>
+    </div>
+    <div class="legend" id="legend-agreements" style="display:none;">
+      <h3>Connection Strength</h3>
+      <div class="legend-row"><div class="legend-line" style="background:var(--green);height:3px;"></div> Strong — share distinctive clauses</div>
+      <div class="legend-row"><div class="legend-line" style="background:var(--orange);height:2px;"></div> Moderate — some distinctive overlap</div>
+      <div class="legend-row"><div class="legend-line" style="background:var(--accent);height:1px;"></div> Weak — only boilerplate overlap</div>
+      <h3 style="margin-top:10px;">Clause Rarity</h3>
+      <div class="legend-row"><span style="color:var(--pink);font-size:10px;">◆</span> Unique — in &lt;1% of agreements</div>
+      <div class="legend-row"><span style="color:var(--purple);font-size:10px;">▲</span> Specialized — in 2-5%</div>
+      <div class="legend-row"><span style="color:var(--orange);font-size:10px;">●</span> Common — in 5-15%</div>
+      <div class="legend-row"><span style="color:var(--text-dim);font-size:10px;">○</span> Boilerplate — in 15%+</div>
+      <h3 style="margin-top:10px;">Node Rings</h3>
+      <div class="legend-row"><span style="color:var(--red);font-size:11px;">◌</span> Isolated — no connections</div>
+      <div class="legend-row"><span style="color:var(--orange);font-size:11px;">◌</span> Loosely connected (≤3)</div>
+    </div>
+  </div>
+
+  <!-- Canvas -->
+  <div id="canvas-wrap">
+    <svg id="graph-svg"></svg>
+    <svg id="agr-svg" style="display:none;"></svg>
+    <div id="intents-view" style="display:none; padding:16px; overflow-y:auto; height:100%;"></div>
+    <div id="matrix-view" style="display:none; padding:16px; overflow-y:auto; height:100%;"></div>
+  </div>
+
+  <!-- Right Detail Panel -->
+  <div id="detail">
+    <span id="detail-close">&times;</span>
+    <div id="detail-content"></div>
+  </div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Data Loading
+// ═══════════════════════════════════════════════════════════════
+let DATA = null;
+let AGR_DATA = null;
+const DOMAIN_COLORS = [
+  '#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff', '#f778ba',
+  '#79c0ff', '#56d364', '#e3b341', '#ff7b72', '#d2a8ff', '#ff9bce',
+];
+const ARCHETYPE_COLORS = [
+  '#58a6ff', '#3fb950', '#d29922', '#f85149', '#bc8cff', '#f778ba',
+  '#79c0ff', '#56d364', '#e3b341', '#ff7b72', '#d2a8ff', '#ff9bce',
+  '#a5d6ff', '#7ee787', '#f0c94d', '#ffa198', '#e2cbff', '#ffb8d4',
+];
+
+async function loadData() {
+  const [resp, agrResp] = await Promise.all([
+    fetch('data/ontology_viz_data.json'),
+    fetch('data/agreement_network_viz.json'),
+  ]);
+  DATA = await resp.json();
+  AGR_DATA = await agrResp.json();
+  init();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Initialization
+// ═══════════════════════════════════════════════════════════════
+let simulation, svg, gLinks, gNodes, gLabels, tooltip;
+let activeView = 'graph';
+let activeDomains = new Set();
+let activeEdgeTypes = new Set(['centroid_similarity', 'field_overlap', 'shared_intents']);
+let sizeScale = 1;
+let selectedNodeId = null;
+
+function init() {
+  // Stats bar
+  const s = DATA.stats;
+  document.getElementById('stats-bar').innerHTML = `
+    <div><span class="stat-val">${s.agreements}</span> agreements</div>
+    <div><span class="stat-val">${s.clustered.toLocaleString()}/${s.clauses.toLocaleString()}</span> clauses (${(100*s.clustered/s.clauses).toFixed(1)}%)</div>
+    <div><span class="stat-val">${s.clusters}</span> clusters</div>
+    <div><span class="stat-val">${s.fields.toLocaleString()}</span> fields</div>
+    <div><span class="stat-val">${s.extractions.toLocaleString()}</span> extractions</div>
+    <div><span class="stat-val">${s.intent_types.toLocaleString()}</span> intent types</div>
+  `;
+
+  // Domain filters
+  const domainMap = {};
+  DATA.domains.forEach((d, i) => {
+    d.color = DOMAIN_COLORS[i % DOMAIN_COLORS.length];
+    domainMap[d.id] = d;
+    activeDomains.add(d.id);
+  });
+  DATA.clusters.forEach(c => { c.color = domainMap[c.domain_id]?.color || '#888'; });
+
+  const df = document.getElementById('domain-filters');
+  DATA.domains.forEach(d => {
+    const cnt = DATA.clusters.filter(c => c.domain_id === d.id).length;
+    const el = document.createElement('div');
+    el.className = 'domain-chip active';
+    el.dataset.id = d.id;
+    el.innerHTML = `<div class="domain-dot" style="background:${d.color}"></div>
+                    <span>${d.label}</span><span class="count">${cnt}</span>`;
+    el.onclick = () => toggleDomain(d.id, el);
+    df.appendChild(el);
+  });
+
+  // Edge toggles
+  const et = document.getElementById('edge-toggles');
+  [['centroid_similarity', 'Centroid Similarity', '--accent'],
+   ['field_overlap', 'Shared Fields', '--green'],
+   ['shared_intents', 'Shared Intents', '--purple']].forEach(([type, label]) => {
+    const el = document.createElement('label');
+    el.className = 'edge-toggle';
+    el.innerHTML = `<input type="checkbox" checked data-type="${type}"> ${label}`;
+    el.querySelector('input').onchange = (e) => {
+      if (e.target.checked) activeEdgeTypes.add(type);
+      else activeEdgeTypes.delete(type);
+      updateGraph();
+    };
+    et.appendChild(el);
+  });
+
+  // Sliders
+  document.getElementById('size-slider').oninput = (e) => {
+    sizeScale = +e.target.value;
+    document.getElementById('size-val').textContent = sizeScale.toFixed(1);
+    updateNodeSizes();
+  };
+  document.getElementById('force-slider').oninput = (e) => {
+    const val = +e.target.value;
+    document.getElementById('force-val').textContent = val;
+    simulation.force('charge').strength(val);
+    simulation.alpha(0.3).restart();
+  };
+
+  // Search
+  document.getElementById('search').oninput = (e) => {
+    const q = e.target.value.toLowerCase();
+    d3.selectAll('.node-group').attr('opacity', d => {
+      if (!q) return 1;
+      const match = d.label.toLowerCase().includes(q) ||
+                    d.field_names.some(f => f.toLowerCase().includes(q)) ||
+                    (DATA.cluster_intents[d.id] || []).some(it => it.intent.toLowerCase().includes(q));
+      return match ? 1 : 0.08;
+    });
+  };
+
+  // View tabs
+  document.querySelectorAll('.view-btn').forEach(btn => {
+    btn.onclick = () => switchView(btn.dataset.view);
+  });
+
+  // Detail close
+  document.getElementById('detail-close').onclick = closeDetail;
+
+  tooltip = document.getElementById('tooltip');
+
+  buildGraph();
+  buildAgreementsGraph();
+  buildIntentsView();
+  buildMatrixView();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Graph View (D3 Force)
+// ═══════════════════════════════════════════════════════════════
+function buildGraph() {
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+
+  svg = d3.select('#graph-svg');
+  svg.selectAll('*').remove();
+
+  const defs = svg.append('defs');
+  // Glow filter
+  const filter = defs.append('filter').attr('id', 'glow');
+  filter.append('feGaussianBlur').attr('stdDeviation', 3).attr('result', 'blur');
+  filter.append('feMerge').selectAll('feMergeNode')
+    .data(['blur', 'SourceGraphic']).enter().append('feMergeNode')
+    .attr('in', d => d);
+
+  const g = svg.append('g');
+
+  // Zoom
+  const zoom = d3.zoom().scaleExtent([0.1, 5]).on('zoom', (e) => g.attr('transform', e.transform));
+  svg.call(zoom);
+
+  // Prepare data
+  const nodes = DATA.clusters.map(c => ({...c, r: Math.sqrt(c.clauses) * 1.8}));
+  const nodeMap = {};
+  nodes.forEach(n => nodeMap[n.id] = n);
+
+  const links = DATA.edges
+    .filter(e => nodeMap[e.source] && nodeMap[e.target])
+    .map(e => ({...e, source: e.source, target: e.target}));
+
+  // Links
+  gLinks = g.append('g').attr('class', 'links')
+    .selectAll('line').data(links).enter().append('line')
+    .attr('class', 'link')
+    .attr('stroke', d => edgeColor(d.type))
+    .attr('stroke-width', d => d.type === 'field_overlap' ? 2 : 1)
+    .attr('stroke-dasharray', d => d.type === 'shared_intents' ? '4,3' : null)
+    .on('mouseover', (ev, d) => showEdgeTooltip(ev, d))
+    .on('mouseout', hideTooltip);
+
+  // Nodes
+  gNodes = g.append('g').attr('class', 'nodes')
+    .selectAll('g').data(nodes).enter().append('g')
+    .attr('class', 'node-group')
+    .style('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', dragStart)
+      .on('drag', dragging)
+      .on('end', dragEnd));
+
+  gNodes.append('circle')
+    .attr('r', d => d.r * sizeScale)
+    .attr('fill', d => d.color)
+    .attr('fill-opacity', 0.7)
+    .attr('stroke', d => d.color)
+    .attr('stroke-width', 1.5)
+    .attr('filter', 'url(#glow)');
+
+  gNodes.append('text')
+    .attr('class', 'node-label')
+    .attr('dy', d => d.r * sizeScale + 12)
+    .text(d => d.label.length > 22 ? d.label.slice(0, 20) + '…' : d.label);
+
+  gNodes.on('mouseover', (ev, d) => showNodeTooltip(ev, d))
+        .on('mouseout', hideTooltip)
+        .on('click', (ev, d) => showDetail(d));
+
+  // Simulation
+  simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(100).strength(0.2))
+    .force('charge', d3.forceManyBody().strength(-120))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide().radius(d => d.r * sizeScale + 8))
+    .force('x', d3.forceX(W / 2).strength(0.04))
+    .force('y', d3.forceY(H / 2).strength(0.04))
+    .on('tick', ticked);
+
+  function ticked() {
+    gLinks.selectAll('line').data().length; // force binding
+    g.selectAll('.link')
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    g.selectAll('.node-group')
+      .attr('transform', d => `translate(${d.x},${d.y})`);
+  }
+
+  // Initial zoom to fit
+  setTimeout(() => {
+    svg.call(zoom.transform, d3.zoomIdentity.translate(W*0.05, H*0.05).scale(0.9));
+  }, 500);
+}
+
+function edgeColor(type) {
+  return type === 'centroid_similarity' ? '#58a6ff' :
+         type === 'field_overlap' ? '#3fb950' : '#bc8cff';
+}
+
+function updateGraph() {
+  d3.selectAll('.node-group')
+    .attr('display', d => activeDomains.has(d.domain_id) ? null : 'none');
+  d3.selectAll('.link')
+    .attr('display', d => {
+      const src = typeof d.source === 'object' ? d.source : DATA.clusters.find(c => c.id === d.source);
+      const tgt = typeof d.target === 'object' ? d.target : DATA.clusters.find(c => c.id === d.target);
+      if (!src || !tgt) return 'none';
+      if (!activeDomains.has(src.domain_id) || !activeDomains.has(tgt.domain_id)) return 'none';
+      if (!activeEdgeTypes.has(d.type)) return 'none';
+      return null;
+    });
+}
+
+function updateNodeSizes() {
+  d3.selectAll('.node-group circle').attr('r', d => d.r * sizeScale);
+  d3.selectAll('.node-group text').attr('dy', d => d.r * sizeScale + 12);
+  simulation.force('collision').radius(d => d.r * sizeScale + 8);
+  simulation.alpha(0.2).restart();
+}
+
+function toggleDomain(id, el) {
+  if (activeDomains.has(id)) { activeDomains.delete(id); el.classList.remove('active'); }
+  else { activeDomains.add(id); el.classList.add('active'); }
+  updateGraph();
+}
+
+function dragStart(ev, d) { if (!ev.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }
+function dragging(ev, d) { d.fx = ev.x; d.fy = ev.y; }
+function dragEnd(ev, d) { if (!ev.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }
+
+// ═══════════════════════════════════════════════════════════════
+// Intents View
+// ═══════════════════════════════════════════════════════════════
+function buildIntentsView() {
+  const wrap = document.getElementById('intents-view');
+  let html = '<h2 style="margin-bottom:12px;font-size:16px;">Top 50 Intent Types</h2>';
+  const maxCount = DATA.top_intents[0]?.count || 1;
+  DATA.top_intents.forEach((it, i) => {
+    const pct = (100 * it.count / maxCount).toFixed(0);
+    html += `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13px;">
+      <span style="width:24px;text-align:right;color:var(--text-dim)">${i+1}</span>
+      <div style="flex:1;position:relative;height:22px;background:rgba(255,255,255,0.04);border-radius:3px;overflow:hidden;">
+        <div style="position:absolute;left:0;top:0;bottom:0;width:${pct}%;background:rgba(88,166,255,0.2);border-radius:3px;"></div>
+        <span style="position:relative;padding:0 6px;line-height:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">${escHtml(it.label)}</span>
+      </div>
+      <span style="width:50px;text-align:right;color:var(--accent);font-weight:500;">${it.count}</span>
+    </div>`;
+  });
+  wrap.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Matrix View (Domain × Cluster heatmap)
+// ═══════════════════════════════════════════════════════════════
+function buildMatrixView() {
+  const wrap = document.getElementById('matrix-view');
+  let html = '<h2 style="margin-bottom:12px;font-size:16px;">Domain / Cluster Matrix</h2>';
+  const maxClauses = Math.max(...DATA.clusters.map(c => c.clauses));
+
+  DATA.domains.forEach(domain => {
+    const clusters = DATA.clusters.filter(c => c.domain_id === domain.id)
+      .sort((a, b) => b.clauses - a.clauses);
+    html += `<div style="margin-bottom:16px;">
+      <h3 style="font-size:13px;margin-bottom:6px;color:${domain.color}">${escHtml(domain.label)} (${clusters.length} clusters)</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;">`;
+    clusters.forEach(c => {
+      const intensity = Math.min(1, c.clauses / (maxClauses * 0.5));
+      const bg = hexToRgba(domain.color, 0.1 + intensity * 0.5);
+      html += `<div onclick="showDetailById('${c.id}')" style="padding:4px 8px;border-radius:4px;
+        background:${bg};font-size:11px;cursor:pointer;white-space:nowrap;border:1px solid rgba(255,255,255,0.06);"
+        title="${c.clauses} clauses, ${c.fields} fields">
+        ${escHtml(c.label.length > 28 ? c.label.slice(0,26)+'…' : c.label)}
+        <span style="color:var(--text-dim);margin-left:4px;">${c.clauses}</span>
+      </div>`;
+    });
+    html += '</div></div>';
+  });
+  wrap.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// View Switching
+// ═══════════════════════════════════════════════════════════════
+function switchView(view) {
+  activeView = view;
+  document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.getElementById('graph-svg').style.display = view === 'graph' ? '' : 'none';
+  document.getElementById('agr-svg').style.display = view === 'agreements' ? '' : 'none';
+  document.getElementById('intents-view').style.display = view === 'intents' ? '' : 'none';
+  document.getElementById('matrix-view').style.display = view === 'matrix' ? '' : 'none';
+  document.getElementById('legend-clusters').style.display = view === 'graph' ? '' : 'none';
+  document.getElementById('legend-agreements').style.display = view === 'agreements' ? '' : 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Detail Panel
+// ═══════════════════════════════════════════════════════════════
+function showDetail(d) {
+  selectedNodeId = d.id;
+  const panel = document.getElementById('detail');
+  panel.classList.add('open');
+
+  const intents = DATA.cluster_intents[d.id] || [];
+  const neighbors = DATA.edges
+    .filter(e => {
+      const s = typeof e.source === 'object' ? e.source.id : e.source;
+      const t = typeof e.target === 'object' ? e.target.id : e.target;
+      return s === d.id || t === d.id;
+    })
+    .map(e => {
+      const s = typeof e.source === 'object' ? e.source.id : e.source;
+      const t = typeof e.target === 'object' ? e.target.id : e.target;
+      const otherId = s === d.id ? t : s;
+      const other = DATA.clusters.find(c => c.id === otherId);
+      return other ? { ...other, edgeType: e.type, sim: e.similarity || e.jaccard || e.shared_count } : null;
+    })
+    .filter(Boolean);
+
+  document.getElementById('detail-content').innerHTML = `
+    <h2>${escHtml(d.label)}</h2>
+    <div class="domain-tag" style="background:${d.color}22;color:${d.color};border:1px solid ${d.color}44;">
+      ${escHtml(d.domain_label)}</div>
+    <div class="meta">
+      <span>${d.clauses}</span> clauses &middot;
+      <span>${d.fields}</span> fields &middot;
+      sim <span>${d.domain_sim}</span>
+    </div>
+    ${d.description ? `<p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">${escHtml(d.description)}</p>` : ''}
+
+    <div class="section">
+      <div class="section-title">Fields (${d.field_names.length})</div>
+      ${d.field_names.map(f => `<span class="field-tag">${escHtml(f)}</span>`).join('')}
+    </div>
+
+    <div class="section">
+      <div class="section-title">Top Intents (${intents.length})</div>
+      ${intents.map(it => `<div class="intent-row">
+        <span>${escHtml(it.intent)}</span><span class="ct">${it.count}</span>
+      </div>`).join('') || '<span style="color:var(--text-dim);font-size:12px">No intents</span>'}
+    </div>
+
+    <div class="section">
+      <div class="section-title">Connected Clusters (${neighbors.length})</div>
+      ${neighbors.slice(0, 15).map(n => `<div class="neighbor-row" onclick="showDetailById('${n.id}')">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${n.color};margin-right:4px;"></span>
+        ${escHtml(n.label)}
+        <span style="color:var(--text-dim);font-size:11px;margin-left:4px;">${n.edgeType.replace('_',' ')}</span>
+      </div>`).join('') || '<span style="color:var(--text-dim);font-size:12px">No neighbors</span>'}
+    </div>
+  `;
+
+  // Highlight in graph
+  d3.selectAll('.node-group').attr('opacity', n =>
+    n.id === d.id || neighbors.some(nb => nb.id === n.id) ? 1 : 0.15);
+  d3.selectAll('.link').attr('opacity', e => {
+    const s = typeof e.source === 'object' ? e.source.id : e.source;
+    const t = typeof e.target === 'object' ? e.target.id : e.target;
+    return s === d.id || t === d.id ? 0.8 : 0.03;
+  });
+}
+
+function showDetailById(id) {
+  const c = DATA.clusters.find(c => c.id === id);
+  if (c) showDetail(c);
+}
+
+function closeDetail() {
+  document.getElementById('detail').classList.remove('open');
+  selectedNodeId = null;
+  d3.selectAll('.node-group').attr('opacity', 1);
+  d3.selectAll('.agr-node-group').attr('opacity', 1);
+  d3.selectAll('.link').attr('opacity', 0.3);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Agreement Network Graph
+// ═══════════════════════════════════════════════════════════════
+let agrSimulation;
+
+function buildAgreementsGraph() {
+  if (!AGR_DATA) return;
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+
+  const svg = d3.select('#agr-svg');
+  svg.selectAll('*').remove();
+  svg.attr('width', W).attr('height', H);
+
+  const defs = svg.append('defs');
+  const filter = defs.append('filter').attr('id', 'agr-glow');
+  filter.append('feGaussianBlur').attr('stdDeviation', 2.5).attr('result', 'blur');
+  filter.append('feMerge').selectAll('feMergeNode')
+    .data(['blur', 'SourceGraphic']).enter().append('feMergeNode').attr('in', d => d);
+
+  const g = svg.append('g');
+  const zoom = d3.zoom().scaleExtent([0.1, 6]).on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoom);
+
+  // Color by archetype
+  const archetypes = [...new Set(AGR_DATA.nodes.map(n => n.archetype))];
+  const archColor = {};
+  archetypes.forEach((a, i) => { archColor[a] = ARCHETYPE_COLORS[i % ARCHETYPE_COLORS.length]; });
+
+  const nodes = AGR_DATA.nodes.map(n => ({
+    ...n,
+    r: 4 + Math.sqrt(n.n_clause_types) * 2.2,
+    color: archColor[n.archetype] || '#888',
+  }));
+  const nodeMap = {};
+  nodes.forEach(n => nodeMap[n.id] = n);
+
+  const links = AGR_DATA.edges
+    .filter(e => nodeMap[e.source] && nodeMap[e.target])
+    .map(e => ({...e}));
+
+  function strengthColor(s) {
+    return s === 'Strong' ? '#3fb950' : s === 'Moderate' ? '#d29922' : '#58a6ff';
+  }
+
+  // Links — colored by strength
+  const gLinks = g.append('g').selectAll('line').data(links).enter().append('line')
+    .attr('class', 'link')
+    .attr('stroke', d => strengthColor(d.strength_label))
+    .attr('stroke-opacity', d => d.strength_label === 'Strong' ? 0.5 : d.strength_label === 'Moderate' ? 0.2 : 0.08)
+    .attr('stroke-width', d => d.strength_label === 'Strong' ? 2.5 : d.strength_label === 'Moderate' ? 1.2 : 0.5)
+    .on('mouseover', (ev, d) => {
+      tooltip.style.display = 'block';
+      tooltip.style.left = (ev.clientX + 12) + 'px';
+      tooltip.style.top = (ev.clientY - 8) + 'px';
+      const src = nodeMap[typeof d.source === 'object' ? d.source.id : d.source];
+      const tgt = nodeMap[typeof d.target === 'object' ? d.target.id : d.target];
+      const sColor = strengthColor(d.strength_label);
+      tooltip.innerHTML = `<div class="tt-title">${escHtml(src?.label)} ↔ ${escHtml(tgt?.label)}</div>
+        <div class="tt-meta">
+          <span style="color:${sColor};font-weight:600;">${d.strength_label}</span> connection (${d.connection_strength}%)<br>
+          ${d.strength_reason}<br>
+          ${d.shared_types} shared types · Jaccard ${d.jaccard}
+        </div>`;
+    })
+    .on('mouseout', hideTooltip);
+
+  // Nodes
+  const gNodes = g.append('g').selectAll('g').data(nodes).enter().append('g')
+    .attr('class', 'agr-node-group')
+    .style('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', (ev, d) => { if (!ev.active) agrSimulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag', (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+      .on('end', (ev, d) => { if (!ev.active) agrSimulation.alphaTarget(0); d.fx = null; d.fy = null; }));
+
+  // Outer ring for isolation
+  gNodes.append('circle')
+    .attr('r', d => d.r + 2)
+    .attr('fill', 'none')
+    .attr('stroke', d => d.n_connections === 0 ? 'var(--red)' : d.n_connections <= 3 ? 'var(--orange)' : 'none')
+    .attr('stroke-width', d => d.n_connections === 0 ? 2 : 1)
+    .attr('stroke-dasharray', d => d.n_connections === 0 ? '3,2' : null);
+
+  gNodes.append('circle')
+    .attr('r', d => d.r)
+    .attr('fill', d => d.color)
+    .attr('fill-opacity', 0.75)
+    .attr('stroke', d => d.color)
+    .attr('stroke-width', 1.2)
+    .attr('filter', 'url(#agr-glow)');
+
+  gNodes.append('text')
+    .attr('class', 'node-label')
+    .attr('dy', d => d.r + 10)
+    .style('font-size', '8px')
+    .text(d => d.n_clause_types >= 8 ? d.label.slice(0, 16) + '…' : '');
+
+  gNodes.on('mouseover', (ev, d) => {
+    tooltip.style.display = 'block';
+    tooltip.style.left = (ev.clientX + 12) + 'px';
+    tooltip.style.top = (ev.clientY - 8) + 'px';
+    const connLabel = d.n_connections === 0 ? '<span style="color:var(--red)">Isolated</span>' :
+                      d.n_connections <= 3 ? '<span style="color:var(--orange)">Loosely connected</span>' :
+                      `${d.n_connections} connections`;
+    tooltip.innerHTML = `<div class="tt-title">${escHtml(d.label)}</div>
+      <div class="tt-meta">${d.n_clause_types} clause types · ${connLabel}<br>
+      Best connection: ${d.best_connection_strength}%<br>
+      Archetype: ${escHtml(d.archetype)}<br>
+      ${d.specialized_count} specialized + ${d.boilerplate_count} boilerplate clauses
+      ${d.isolation_reason ? '<br><span style="color:var(--orange)">' + escHtml(d.isolation_reason) + '</span>' : ''}</div>`;
+  })
+  .on('mouseout', hideTooltip)
+  .on('click', (ev, d) => showAgrDetail(d, nodeMap, links));
+
+  // Simulation — use connection_strength for link distance
+  agrSimulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id)
+      .distance(d => 200 / (d.connection_strength / 100 + 0.3))
+      .strength(d => (d.connection_strength / 100) * 0.5))
+    .force('charge', d3.forceManyBody().strength(-40))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide().radius(d => d.r + 3))
+    .force('x', d3.forceX(W / 2).strength(0.03))
+    .force('y', d3.forceY(H / 2).strength(0.03))
+    .on('tick', () => {
+      gLinks.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+            .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+      gNodes.attr('transform', d => `translate(${d.x},${d.y})`);
+    });
+
+  setTimeout(() => svg.call(zoom.transform, d3.zoomIdentity.translate(W*0.05, H*0.05).scale(0.9)), 500);
+}
+
+// ── Rarity tag helpers ──
+function rarityColor(r) {
+  return r === 'unique' ? 'var(--pink)' : r === 'specialized' ? 'var(--purple)' :
+         r === 'common' ? 'var(--orange)' : 'var(--text-dim)';
+}
+function rarityBg(r) {
+  return r === 'unique' ? 'rgba(247,120,186,0.12)' : r === 'specialized' ? 'rgba(188,140,255,0.12)' :
+         r === 'common' ? 'rgba(210,153,34,0.12)' : 'rgba(139,148,158,0.08)';
+}
+function rarityIcon(r) {
+  return r === 'unique' ? '◆' : r === 'specialized' ? '▲' : r === 'common' ? '●' : '○';
+}
+
+function showAgrDetail(d, nodeMap, links) {
+  const panel = document.getElementById('detail');
+  panel.classList.add('open');
+
+  // Get edge data with full scoring
+  const neighbors = links
+    .filter(e => {
+      const s = typeof e.source === 'object' ? e.source.id : e.source;
+      const t = typeof e.target === 'object' ? e.target.id : e.target;
+      return s === d.id || t === d.id;
+    })
+    .map(e => {
+      const s = typeof e.source === 'object' ? e.source.id : e.source;
+      const t = typeof e.target === 'object' ? e.target.id : e.target;
+      const otherId = s === d.id ? t : s;
+      const other = nodeMap[otherId];
+      if (!other) return null;
+      return {
+        ...other,
+        jaccard: e.jaccard,
+        shared_types: e.shared_types,
+        connection_strength: e.connection_strength,
+        strength_label: e.strength_label,
+        strength_reason: e.strength_reason,
+        breakdown: e.breakdown,
+        positive_reasons: e.positive_reasons || [],
+        negative_reasons: e.negative_reasons || [],
+        shared_labels: e.shared_labels || [],
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.connection_strength - a.connection_strength);
+
+  // Clause types with importance
+  const clauseTypes = d.clause_types || [];
+  const ctHtml = clauseTypes.map(ct => {
+    const rc = rarityColor(ct.rarity);
+    const bg = rarityBg(ct.rarity);
+    return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03);">
+      <span style="color:${rc};font-size:10px;width:14px;text-align:center;">${rarityIcon(ct.rarity)}</span>
+      <span style="flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(ct.clause_type)}</span>
+      <span style="font-size:10px;padding:1px 5px;border-radius:3px;background:${bg};color:${rc};white-space:nowrap;">${ct.rarity_label}</span>
+      <span style="font-size:10px;color:var(--text-dim);min-width:28px;text-align:right;">${ct.doc_freq_pct}%</span>
+    </div>`;
+  }).join('');
+
+  // Neighbor cards with full reasoning
+  const neighborHtml = neighbors.slice(0, 15).map(n => {
+    const sColor = n.strength_label === 'Strong' ? 'var(--green)' :
+                   n.strength_label === 'Moderate' ? 'var(--orange)' : 'var(--accent)';
+    const strengthPct = n.connection_strength;
+
+    // Positive reasons
+    const posHtml = (n.positive_reasons || []).slice(0, 6).map(r => {
+      const rc = rarityColor(r.rarity);
+      const bg = rarityBg(r.rarity);
+      return `<div style="display:flex;align-items:flex-start;gap:5px;margin:2px 0;">
+        <span style="color:var(--green);font-size:10px;margin-top:1px;">+</span>
+        <span style="font-size:10px;flex:1;">${escHtml(r.reason)}</span>
+      </div>`;
+    }).join('');
+
+    // Negative reasons
+    const negHtml = (n.negative_reasons || []).slice(0, 3).map(r => {
+      return `<div style="display:flex;align-items:flex-start;gap:5px;margin:2px 0;">
+        <span style="color:var(--red);font-size:10px;margin-top:1px;">−</span>
+        <span style="font-size:10px;flex:1;color:var(--text-dim);">${escHtml(r.reason)}</span>
+      </div>`;
+    }).join('');
+
+    // Breakdown bar
+    const bk = n.breakdown || {};
+    const total = (bk.boilerplate||0) + (bk.common||0) + (bk.specialized||0) + (bk.unique||0);
+    const segments = [
+      { count: bk.unique||0, color: 'var(--pink)', label: 'Unique' },
+      { count: bk.specialized||0, color: 'var(--purple)', label: 'Specialized' },
+      { count: bk.common||0, color: 'var(--orange)', label: 'Common' },
+      { count: bk.boilerplate||0, color: 'var(--text-dim)', label: 'Boilerplate' },
+    ].filter(s => s.count > 0);
+
+    const barHtml = total > 0 ? segments.map(s =>
+      `<div style="flex:${s.count};height:8px;background:${s.color};border-radius:2px;" title="${s.count} ${s.label}"></div>`
+    ).join('') : '';
+
+    return `<div style="margin-bottom:12px;padding:10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:6px;flex:1;overflow:hidden;">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${n.color};flex-shrink:0;"></span>
+          <span style="font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(n.label)}</span>
+        </div>
+        <span style="font-size:12px;font-weight:700;color:${sColor};margin-left:8px;">${n.strength_label}</span>
+      </div>
+
+      <!-- Strength bar -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <div style="flex:1;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;">
+          <div style="width:${strengthPct}%;height:100%;background:${sColor};border-radius:4px;transition:width 0.3s;"></div>
+        </div>
+        <span style="font-size:12px;color:${sColor};font-weight:700;min-width:36px;text-align:right;">${strengthPct}%</span>
+      </div>
+
+      <!-- Why label -->
+      <div style="font-size:10px;color:var(--text-dim);margin-bottom:4px;">${escHtml(n.strength_reason)}</div>
+
+      <!-- Breakdown bar -->
+      ${total > 0 ? `<div style="display:flex;gap:1px;margin-bottom:6px;border-radius:4px;overflow:hidden;">${barHtml}</div>
+      <div style="display:flex;gap:8px;font-size:9px;color:var(--text-dim);margin-bottom:6px;">
+        ${segments.map(s => `<span><span style="color:${s.color};">■</span> ${s.count} ${s.label}</span>`).join('')}
+      </div>` : ''}
+
+      <!-- Positive reasons -->
+      ${posHtml ? `<div style="margin-top:4px;">${posHtml}</div>` : ''}
+
+      <!-- Negative reasons -->
+      ${negHtml ? `<div style="margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.04);">${negHtml}</div>` : ''}
+    </div>`;
+  }).join('');
+
+  // Isolation callout
+  const isolationHtml = d.isolation_reason ? `
+    <div style="padding:8px 10px;border-radius:6px;background:rgba(248,81,73,0.08);border:1px solid rgba(248,81,73,0.2);margin-bottom:12px;">
+      <div style="font-size:11px;color:var(--red);font-weight:600;margin-bottom:2px;">⚠ Isolation Alert</div>
+      <div style="font-size:11px;color:var(--text-dim);">${escHtml(d.isolation_reason)}</div>
+    </div>` : '';
+
+  document.getElementById('detail-content').innerHTML = `
+    <h2>${escHtml(d.label)}</h2>
+    <div class="domain-tag" style="background:${d.color}22;color:${d.color};border:1px solid ${d.color}44;">
+      ${escHtml(d.archetype)}</div>
+    <div class="meta">
+      <span>${d.n_clause_types}</span> clause types &middot;
+      <span>${d.n_connections}</span> connections &middot;
+      best <span>${d.best_connection_strength}%</span>
+    </div>
+    <div class="meta" style="font-size:11px;">Domain: ${escHtml(d.domain)}</div>
+
+    ${isolationHtml}
+
+    <div class="section">
+      <div class="section-title">Clause Types — ranked by distinctiveness (${clauseTypes.length})</div>
+      <div style="display:flex;gap:8px;font-size:9px;color:var(--text-dim);margin-bottom:6px;">
+        <span><span style="color:var(--pink);">◆</span> Unique</span>
+        <span><span style="color:var(--purple);">▲</span> Specialized</span>
+        <span><span style="color:var(--orange);">●</span> Common</span>
+        <span><span style="color:var(--text-dim);">○</span> Boilerplate</span>
+      </div>
+      ${ctHtml}
+    </div>
+
+    <div class="section">
+      <div class="section-title" style="margin-top:14px;">Similar Agreements — ranked by connection strength (${neighbors.length})</div>
+      ${neighborHtml || '<span style="color:var(--text-dim);font-size:12px">No connections found</span>'}
+    </div>
+  `;
+
+  // Highlight
+  const neighborIds = new Set(neighbors.map(n => n.id));
+  neighborIds.add(d.id);
+  d3.selectAll('.agr-node-group').attr('opacity', n => neighborIds.has(n.id) ? 1 : 0.08);
+  d3.selectAll('#agr-svg .link').attr('opacity', e => {
+    const s = typeof e.source === 'object' ? e.source.id : e.source;
+    const t = typeof e.target === 'object' ? e.target.id : e.target;
+    return s === d.id || t === d.id ? 0.8 : 0.02;
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Tooltips
+// ═══════════════════════════════════════════════════════════════
+function showNodeTooltip(ev, d) {
+  tooltip.style.display = 'block';
+  tooltip.style.left = (ev.clientX + 12) + 'px';
+  tooltip.style.top = (ev.clientY - 8) + 'px';
+  tooltip.innerHTML = `<div class="tt-title">${escHtml(d.label)}</div>
+    <div class="tt-meta">${d.clauses} clauses · ${d.fields} fields<br>${escHtml(d.domain_label)}</div>`;
+}
+
+function showEdgeTooltip(ev, d) {
+  tooltip.style.display = 'block';
+  tooltip.style.left = (ev.clientX + 12) + 'px';
+  tooltip.style.top = (ev.clientY - 8) + 'px';
+  const src = typeof d.source === 'object' ? d.source.label : d.source;
+  const tgt = typeof d.target === 'object' ? d.target.label : d.target;
+  let info = d.type.replace('_', ' ');
+  if (d.similarity) info += ` (${d.similarity})`;
+  if (d.jaccard) info += ` (Jaccard: ${d.jaccard})`;
+  if (d.shared_fields) info += `<br>Fields: ${d.shared_fields.join(', ')}`;
+  if (d.shared_intents) info += `<br>Intents: ${d.shared_intents.join(', ')}`;
+  tooltip.innerHTML = `<div class="tt-title">${escHtml(src)} ↔ ${escHtml(tgt)}</div>
+    <div class="tt-meta">${info}</div>`;
+}
+
+function hideTooltip() { tooltip.style.display = 'none'; }
+
+// ═══════════════════════════════════════════════════════════════
+// Utilities
+// ═══════════════════════════════════════════════════════════════
+function escHtml(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3), 16);
+  const g = parseInt(hex.slice(3,5), 16);
+  const b = parseInt(hex.slice(5,7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Boot
+// ═══════════════════════════════════════════════════════════════
+loadData();
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+You are analyzing a cluster of legal agreement clauses.
+
+CLAUSE TYPE: {cluster_label}
+CLAUSE DESCRIPTION: {cluster_description}
+
+REPRESENTATIVE CLAUSE EXCERPTS FROM THIS CLUSTER:
+{representative_chunks}
+
+Based on these clauses, identify the structured fields that can be extracted.
+For each field, provide:
+- name: a snake_case field name (e.g., "payment_days", "liability_cap")
+- type: one of "string", "int", "float", "date", "enum", "bool"
+- description: what this field represents
+
+Return 3-8 fields. Focus on fields that appear across multiple clauses.
+
+Respond in JSON:
+{"fields": [{"name": "field_name", "type": "field_type", "description": "what it represents"}]}

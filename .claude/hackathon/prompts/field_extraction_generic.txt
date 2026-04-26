@@ -1,0 +1,9 @@
+You are extracting structured data from a legal agreement section.
+
+Extract any structured fields you can identify from this text.
+For each field, provide its name, value, and a confidence score.
+
+Text:
+{text}
+
+Respond in JSON: {"field_name": {"value": "...", "confidence": 0.0}, ...}

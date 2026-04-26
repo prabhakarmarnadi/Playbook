@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contract Ontology Workspace</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #1c2128; --border: #30363d;
+    --text: #e6edf3; --text-dim: #8b949e; --text-faint: #484f58;
+    --accent: #58a6ff; --green: #3fb950; --orange: #d29922; --red: #f85149;
+    --purple: #bc8cff; --pink: #f778ba; --teal: #39d2c0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+         background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+  /* ── Topbar ── */
+  .topbar { display: flex; align-items: center; justify-content: space-between;
+            background: var(--surface); border-bottom: 1px solid var(--border);
+            padding: 0 20px; height: 52px; flex-shrink: 0; }
+  .topbar h1 { font-size: 15px; font-weight: 600; }
+  .topbar h1 span { color: var(--accent); }
+  .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); }
+  .breadcrumb .sep { color: var(--text-faint); }
+  .breadcrumb .crumb { cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+  .breadcrumb .crumb:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+  .breadcrumb .crumb.active { color: var(--text); font-weight: 500; }
+  .topbar-stats { display: flex; gap: 20px; font-size: 12px; }
+  .topbar-stats .ts { color: var(--text-dim); }
+  .topbar-stats .ts b { color: var(--accent); font-weight: 600; }
+
+  /* ── Main container ── */
+  .main { display: flex; flex-direction: column; height: calc(100vh - 52px); }
+
+  /* ── Level containers ── */
+  .level { display: none; flex: 1; overflow: hidden; }
+  .level.active { display: flex; flex-direction: column; }
+
+  /* ═══════ LEVEL 1: DASHBOARD ═══════ */
+  .dash-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+               gap: 16px; padding: 20px; overflow-y: auto; flex: 1; }
+  .domain-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+                 padding: 20px; cursor: pointer; transition: all 0.15s; position: relative; overflow: hidden; }
+  .domain-card:hover { border-color: var(--accent); transform: translateY(-2px);
+                       box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+  .domain-card .dc-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .domain-card .dc-title { font-size: 15px; font-weight: 600; }
+  .domain-card .dc-count { font-size: 24px; font-weight: 700; color: var(--accent); }
+  .domain-card .dc-subtitle { font-size: 11px; color: var(--text-dim); }
+  .dc-bar { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin: 10px 0; }
+  .dc-bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s; }
+  .dc-clusters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+  .dc-chip { padding: 2px 8px; border-radius: 4px; font-size: 10px; background: rgba(255,255,255,0.04);
+             border: 1px solid rgba(255,255,255,0.06); white-space: nowrap; }
+
+  /* Health summary cards */
+  .health-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; padding: 20px 20px 0; }
+  .health-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .health-card .hc-val { font-size: 22px; font-weight: 700; }
+  .health-card .hc-label { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .health-card .hc-bar { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 8px; }
+  .health-card .hc-bar-fill { height: 100%; border-radius: 2px; }
+
+  /* To-do card (unclustered) */
+  .todo-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+               padding: 20px; cursor: pointer; transition: all 0.15s; }
+  .todo-card:hover { border-color: var(--orange); }
+
+  /* ═══════ LEVEL 2: CLUSTER VIEW ═══════ */
+  .l2-header { padding: 16px 20px; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .l2-header h2 { font-size: 16px; font-weight: 600; }
+  .l2-header .l2-meta { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .l2-body { display: flex; flex: 1; overflow: hidden; }
+  .l2-list { width: 340px; min-width: 340px; border-right: 1px solid var(--border);
+             overflow-y: auto; background: var(--surface); }
+  .l2-search { width: 100%; padding: 8px 12px; background: var(--bg); border: none;
+               border-bottom: 1px solid var(--border); color: var(--text); font-size: 12px; outline: none; }
+  .l2-search::placeholder { color: var(--text-faint); }
+  .cluster-row { padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.03);
+                 cursor: pointer; transition: background 0.1s; }
+  .cluster-row:hover { background: rgba(255,255,255,0.03); }
+  .cluster-row.selected { background: rgba(88,166,255,0.08); border-left: 3px solid var(--accent); }
+  .cr-title { font-size: 13px; font-weight: 500; margin-bottom: 3px; }
+  .cr-meta { display: flex; gap: 10px; font-size: 11px; color: var(--text-dim); }
+  .cr-rarity { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; text-transform: uppercase; }
+  .l2-detail { flex: 1; overflow-y: auto; padding: 20px; }
+
+  /* Smart Grid */
+  .smart-grid { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .smart-grid th { position: sticky; top: 0; background: var(--surface2); padding: 8px 10px;
+                   text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+                   color: var(--text-dim); border-bottom: 2px solid var(--border); z-index: 1; }
+  .smart-grid td { padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.03);
+                   max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .smart-grid tr:hover td { background: rgba(255,255,255,0.02); }
+  .conf-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+
+  /* ═══════ LEVEL 3: DOCUMENT DETAIL ═══════ */
+  .l3-split { display: flex; flex: 1; overflow: hidden; }
+  .l3-left { flex: 1; overflow-y: auto; padding: 20px; border-right: 1px solid var(--border); }
+  .l3-right { width: 420px; min-width: 420px; overflow-y: auto; padding: 20px; background: var(--surface); }
+  .doc-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .doc-meta-row { display: flex; gap: 12px; font-size: 12px; color: var(--text-dim); margin-bottom: 16px; }
+  .doc-meta-row b { color: var(--text); }
+
+  /* Clause type cards in doc view */
+  .ct-card { padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.02);
+             border: 1px solid var(--border); margin-bottom: 8px; cursor: pointer; transition: all 0.1s; }
+  .ct-card:hover { border-color: var(--accent); background: rgba(88,166,255,0.04); }
+  .ct-card-title { font-size: 13px; font-weight: 500; }
+  .ct-card-meta { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+
+  /* Field editor table */
+  .field-editor { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .field-editor th { text-align: left; padding: 6px 8px; font-size: 10px; text-transform: uppercase;
+                     color: var(--text-dim); border-bottom: 1px solid var(--border); }
+  .field-editor td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+  .field-editor .fe-val { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .field-editor tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* Confidence badge */
+  .conf-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px;
+                border-radius: 3px; font-size: 10px; font-weight: 600; }
+  .conf-high { background: rgba(63,185,80,0.12); color: var(--green); }
+  .conf-mid { background: rgba(210,153,34,0.12); color: var(--orange); }
+  .conf-low { background: rgba(248,81,73,0.12); color: var(--red); }
+
+  /* Rarity colors */
+  .rarity-unique { background: rgba(247,120,186,0.12); color: var(--pink); }
+  .rarity-specialized { background: rgba(188,140,255,0.12); color: var(--purple); }
+  .rarity-common { background: rgba(210,153,34,0.12); color: var(--orange); }
+  .rarity-boilerplate { background: rgba(139,148,158,0.08); color: var(--text-dim); }
+
+  /* Section headers */
+  .section-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+                  color: var(--text-dim); margin: 16px 0 8px; padding-bottom: 4px;
+                  border-bottom: 1px solid var(--border); }
+  .section-head:first-child { margin-top: 0; }
+
+  /* Treemap container */
+  .treemap-wrap { flex: 1; padding: 20px; overflow: hidden; }
+  .treemap-cell { position: absolute; overflow: hidden; border: 1px solid var(--bg);
+                  border-radius: 4px; cursor: pointer; transition: all 0.15s; padding: 6px 8px; }
+  .treemap-cell:hover { border-color: var(--accent); z-index: 2; box-shadow: 0 2px 12px rgba(0,0,0,0.4); }
+  .treemap-cell .tc-label { font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis;
+                            white-space: nowrap; }
+  .treemap-cell .tc-count { font-size: 10px; color: var(--text-dim); }
+
+  /* Helper */
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+  .back-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+              border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid var(--border);
+              background: var(--bg); color: var(--text-dim); margin-bottom: 12px; }
+  .back-btn:hover { border-color: var(--accent); color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- ════ TOPBAR ════ -->
+<div class="topbar">
+  <div style="display:flex;align-items:center;gap:16px;">
+    <h1>Contract <span>Ontology</span> Workspace</h1>
+    <div class="breadcrumb" id="breadcrumb">
+      <span class="crumb active" data-level="1" onclick="goLevel(1)">Dashboard</span>
+    </div>
+  </div>
+  <div class="topbar-stats" id="topbar-stats"></div>
+</div>
+
+<!-- ════ MAIN ════ -->
+<div class="main">
+
+  <!-- ══ LEVEL 1: Dashboard ══ -->
+  <div class="level active" id="level-1">
+    <div class="health-row" id="health-row"></div>
+    <div class="dash-grid" id="dash-grid"></div>
+  </div>
+
+  <!-- ══ LEVEL 2: Cluster View ══ -->
+  <div class="level" id="level-2">
+    <div class="l2-header" id="l2-header"></div>
+    <div class="l2-body">
+      <div class="l2-list">
+        <input type="text" class="l2-search" id="l2-search" placeholder="Filter document types…">
+        <div id="l2-cluster-list"></div>
+      </div>
+      <div class="l2-detail" id="l2-detail">
+        <div style="color:var(--text-dim);font-size:13px;padding:40px;text-align:center;">
+          ← Select a document type to view its fields and documents
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ LEVEL 3: Document Detail ══ -->
+  <div class="level" id="level-3">
+    <div class="l3-split">
+      <div class="l3-left" id="l3-left"></div>
+      <div class="l3-right" id="l3-right"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let D = null; // dashboard data
+let currentDomain = null;
+let currentCluster = null;
+let currentDoc = null;
+
+const DOMAIN_COLORS = ['#58a6ff','#3fb950','#d29922','#f85149','#bc8cff','#f778ba','#39d2c0','#79c0ff'];
+
+async function boot() {
+  const resp = await fetch('data/dashboard_data.json');
+  D = await resp.json();
+  D.domains.forEach((d,i) => d.color = DOMAIN_COLORS[i % DOMAIN_COLORS.length]);
+  // Build domain lookup
+  D._domainMap = {};
+  D.domains.forEach(d => D._domainMap[d.id] = d);
+  renderTopbarStats();
+  renderLevel1();
+}
+
+function esc(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''; }
+
+function confClass(c) { return c >= 0.7 ? 'conf-high' : c >= 0.5 ? 'conf-mid' : 'conf-low'; }
+function confLabel(c) { return c >= 0.7 ? 'High' : c >= 0.5 ? 'Medium' : 'Low'; }
+
+function rarityClass(r) { return 'rarity-' + r; }
+function rarityIcon(r) { return r === 'unique' ? '◆' : r === 'specialized' ? '▲' : r === 'common' ? '●' : '○'; }
+function rarityLabel(r) { return r === 'unique' ? 'Unique' : r === 'specialized' ? 'Specialized' : r === 'common' ? 'Common' : 'Boilerplate'; }
+
+// ═══════════════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════════════
+function goLevel(n, context) {
+  document.querySelectorAll('.level').forEach(el => el.classList.remove('active'));
+  document.getElementById('level-' + n).classList.add('active');
+  updateBreadcrumb(n, context);
+}
+
+function updateBreadcrumb(level, context) {
+  const bc = document.getElementById('breadcrumb');
+  let html = '<span class="crumb' + (level===1?' active':'') + '" data-level="1" onclick="goLevel(1)">Dashboard</span>';
+  if (level >= 2 && currentDomain) {
+    html += '<span class="sep">›</span>';
+    html += '<span class="crumb' + (level===2?' active':'') + '" onclick="goLevel(2)">' + esc(currentDomain.label) + '</span>';
+  }
+  if (level >= 3 && currentDoc) {
+    html += '<span class="sep">›</span>';
+    html += '<span class="crumb active">' + esc(currentDoc.filename) + '</span>';
+  }
+  bc.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// TOPBAR STATS
+// ═══════════════════════════════════════════════════════
+function renderTopbarStats() {
+  const s = D.stats;
+  document.getElementById('topbar-stats').innerHTML = `
+    <div class="ts"><b>${s.total_agreements}</b> Agreements</div>
+    <div class="ts"><b>${s.total_clusters}</b> Document Types</div>
+    <div class="ts"><b>${s.total_fields.toLocaleString()}</b> Fields</div>
+    <div class="ts"><b>${s.total_extractions.toLocaleString()}</b> Extractions</div>
+    <div class="ts"><b>${s.high_conf_pct}%</b> High Confidence</div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════
+// LEVEL 1: DASHBOARD
+// ═══════════════════════════════════════════════════════
+function renderLevel1() {
+  const s = D.stats;
+
+  // Health cards
+  const hr = document.getElementById('health-row');
+  const healthItems = [
+    { val: s.total_agreements, label: 'Agreements Processed', color: 'var(--accent)', pct: 100 },
+    { val: (100 - s.unclustered_pct).toFixed(1) + '%', label: 'Clause Coverage', color: s.unclustered_pct < 1 ? 'var(--green)' : 'var(--orange)', pct: 100 - s.unclustered_pct },
+    { val: s.total_clusters, label: 'Document Types Found', color: 'var(--purple)', pct: Math.min(100, s.total_clusters / 1.5) },
+    { val: s.high_conf_pct + '%', label: 'High-Confidence Extractions', color: s.high_conf_pct >= 50 ? 'var(--green)' : 'var(--orange)', pct: s.high_conf_pct },
+    { val: s.unclustered_clauses, label: 'Needs Review', color: s.unclustered_clauses > 50 ? 'var(--red)' : 'var(--green)', pct: s.unclustered_pct },
+  ];
+  hr.innerHTML = healthItems.map(h => `
+    <div class="health-card">
+      <div class="hc-val" style="color:${h.color}">${h.val}</div>
+      <div class="hc-label">${h.label}</div>
+      <div class="hc-bar"><div class="hc-bar-fill" style="width:${h.pct}%;background:${h.color}"></div></div>
+    </div>
+  `).join('');
+
+  // Domain cards + treemap within each
+  const grid = document.getElementById('dash-grid');
+  let html = '';
+
+  D.domains.forEach(domain => {
+    const clusters = D.clusters.filter(c => c.domain_id === domain.id)
+      .sort((a,b) => b.clause_count - a.clause_count);
+    const totalClauses = clusters.reduce((s,c) => s + c.clause_count, 0);
+    const confPct = Math.round(domain.avg_confidence * 100);
+
+    // Top clusters as chips
+    const chipHtml = clusters.slice(0, 6).map(c => {
+      const pct = totalClauses > 0 ? Math.round(c.clause_count / totalClauses * 100) : 0;
+      return `<div class="dc-chip" title="${c.clause_count} clauses across ${c.doc_freq} agreements">
+        ${esc(c.label.length > 24 ? c.label.slice(0,22)+'…' : c.label)}
+        <span style="color:var(--text-faint);margin-left:3px;">${pct}%</span>
+      </div>`;
+    }).join('');
+
+    // Mini bar chart of cluster sizes
+    const maxCC = Math.max(...clusters.map(c => c.clause_count), 1);
+    const barsHtml = clusters.slice(0, 10).map(c => {
+      const w = Math.max(4, (c.clause_count / maxCC) * 100);
+      return `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;">
+        <div style="width:${w}%;height:6px;background:${domain.color};opacity:0.5;border-radius:3px;min-width:4px;"></div>
+        <span style="font-size:9px;color:var(--text-faint);white-space:nowrap;">${esc(c.label.slice(0, 20))}</span>
+      </div>`;
+    }).join('');
+
+    html += `
+    <div class="domain-card" onclick="openDomain('${domain.id}')">
+      <div class="dc-header">
+        <div>
+          <div class="dc-title" style="color:${domain.color}">${esc(domain.label)}</div>
+          <div class="dc-subtitle">${clusters.length} document types · ${totalClauses.toLocaleString()} clauses</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="dc-count">${domain.agreement_count}</div>
+          <div class="dc-subtitle">agreements</div>
+        </div>
+      </div>
+      <div class="dc-bar"><div class="dc-bar-fill" style="width:${confPct}%;background:${domain.color}"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-faint);margin-bottom:8px;">
+        <span>Domain confidence: ${confPct}%</span>
+        <span>${clusters.filter(c=>c.rarity==='unique'||c.rarity==='specialized').length} specialized types</span>
+      </div>
+      ${barsHtml}
+      <div class="dc-clusters" style="margin-top:8px;">${chipHtml}
+        ${clusters.length > 6 ? `<div class="dc-chip" style="color:var(--accent);">+${clusters.length - 6} more</div>` : ''}
+      </div>
+    </div>`;
+  });
+
+  // Unclustered "To-Do" card
+  if (D.stats.unclustered_clauses > 0) {
+    html += `
+    <div class="todo-card">
+      <div class="dc-header">
+        <div>
+          <div class="dc-title" style="color:var(--orange)">⚠ Needs Review</div>
+          <div class="dc-subtitle">Clauses not yet assigned to a document type</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="dc-count" style="color:var(--orange)">${D.stats.unclustered_clauses}</div>
+          <div class="dc-subtitle">clauses (${D.stats.unclustered_pct}%)</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:8px;">
+        These clauses could not be automatically classified. They may represent novel clause types or edge cases that need manual review.
+      </div>
+    </div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+// ═══════════════════════════════════════════════════════
+// LEVEL 2: CLUSTER VIEW
+// ═══════════════════════════════════════════════════════
+function openDomain(domainId) {
+  currentDomain = D._domainMap[domainId];
+  if (!currentDomain) return;
+  goLevel(2);
+
+  const clusters = D.clusters.filter(c => c.domain_id === domainId)
+    .sort((a,b) => b.doc_freq - a.doc_freq);
+
+  document.getElementById('l2-header').innerHTML = `
+    <h2 style="color:${currentDomain.color}">${esc(currentDomain.label)}</h2>
+    <div class="l2-meta">${clusters.length} document types · ${currentDomain.agreement_count} agreements</div>
+  `;
+
+  renderClusterList(clusters);
+
+  document.getElementById('l2-search').value = '';
+  document.getElementById('l2-search').oninput = (e) => {
+    const q = e.target.value.toLowerCase();
+    const filtered = q ? clusters.filter(c =>
+      c.label.toLowerCase().includes(q) ||
+      c.fields.some(f => f.name.toLowerCase().includes(q))
+    ) : clusters;
+    renderClusterList(filtered);
+  };
+
+  // Auto-select first
+  if (clusters.length > 0) selectCluster(clusters[0].id);
+}
+
+function renderClusterList(clusters) {
+  document.getElementById('l2-cluster-list').innerHTML = clusters.map(c => `
+    <div class="cluster-row${currentCluster && currentCluster.id === c.id ? ' selected' : ''}"
+         onclick="selectCluster('${c.id}')" id="cr-${c.id}">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="cr-title">${esc(c.label)}</div>
+        <span class="cr-rarity ${rarityClass(c.rarity)}">${rarityLabel(c.rarity)}</span>
+      </div>
+      <div class="cr-meta">
+        <span>${c.doc_freq} agreements</span>
+        <span>${c.clause_count} clauses</span>
+        <span>${c.field_count} fields</span>
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectCluster(clusterId) {
+  currentCluster = D.clusters.find(c => c.id === clusterId);
+  if (!currentCluster) return;
+
+  // Highlight in list
+  document.querySelectorAll('.cluster-row').forEach(r => r.classList.remove('selected'));
+  const el = document.getElementById('cr-' + clusterId);
+  if (el) el.classList.add('selected');
+
+  // Get agreements with this cluster
+  const agrs = D.agreements.filter(a =>
+    a.clause_types.some(ct => ct.id === clusterId)
+  ).sort((a,b) => {
+    const ac = a.clause_types.find(ct => ct.id === clusterId);
+    const bc = b.clause_types.find(ct => ct.id === clusterId);
+    return (bc ? bc.clause_count : 0) - (ac ? ac.clause_count : 0);
+  });
+
+  // Get extractions for this cluster across all agreements
+  const clusterExtractions = [];
+  agrs.forEach(a => {
+    a.extractions.filter(e => e.cluster === currentCluster.label).forEach(e => {
+      clusterExtractions.push({ ...e, agreement: a.filename, agreement_id: a.id });
+    });
+  });
+
+  const detail = document.getElementById('l2-detail');
+  const domainColor = currentDomain ? currentDomain.color : 'var(--accent)';
+
+  // Field definitions table
+  const fieldRows = currentCluster.fields.map(f =>
+    `<tr><td style="font-weight:500;">${esc(f.name)}</td><td><span class="pill" style="background:rgba(88,166,255,0.1);color:var(--accent)">${esc(f.type)}</span></td><td style="color:var(--text-dim);">${esc(f.description)}</td></tr>`
+  ).join('');
+
+  // Smart extraction grid
+  const extRows = clusterExtractions.slice(0, 50).map(e => {
+    const cc = confClass(e.confidence);
+    return `<tr onclick="openDocument('${e.agreement_id}')" style="cursor:pointer;">
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(e.agreement)}">${esc(e.agreement)}</td>
+      <td style="font-weight:500;">${esc(e.field)}</td>
+      <td class="fe-val" title="${esc(e.value)}">${esc(e.value)}</td>
+      <td><span class="conf-badge ${cc}">${Math.round(e.confidence * 100)}%</span></td>
+    </tr>`;
+  }).join('');
+
+  // Agreement grid
+  const agrRows = agrs.slice(0, 30).map(a => {
+    const ct = a.clause_types.find(c => c.id === clusterId);
+    return `<tr onclick="openDocument('${a.id}')" style="cursor:pointer;">
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(a.filename)}</td>
+      <td>${ct ? ct.clause_count : 0}</td>
+      <td>${a.n_clause_types}</td>
+      <td><span class="conf-badge ${confClass(a.domain_confidence)}">${Math.round(a.domain_confidence * 100)}%</span></td>
+    </tr>`;
+  }).join('');
+
+  detail.innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
+      <div>
+        <h2 style="font-size:18px;">${esc(currentCluster.label)}</h2>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+          <span class="pill ${rarityClass(currentCluster.rarity)}">${rarityIcon(currentCluster.rarity)} ${rarityLabel(currentCluster.rarity)}</span>
+          <span style="font-size:12px;color:var(--text-dim);">Found in ${currentCluster.doc_freq_pct}% of all agreements</span>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:28px;font-weight:700;color:${domainColor}">${currentCluster.doc_freq}</div>
+        <div style="font-size:11px;color:var(--text-dim);">agreements</div>
+      </div>
+    </div>
+
+    <div class="section-head">Field Schema (${currentCluster.fields.length} fields)</div>
+    <table class="smart-grid" style="margin-bottom:20px;">
+      <thead><tr><th>Field Name</th><th>Type</th><th>Description</th></tr></thead>
+      <tbody>${fieldRows || '<tr><td colspan="3" style="color:var(--text-dim)">No fields defined</td></tr>'}</tbody>
+    </table>
+
+    <div class="section-head">Agreements with this type (${agrs.length})</div>
+    <table class="smart-grid" style="margin-bottom:20px;">
+      <thead><tr><th>Agreement</th><th>Clauses</th><th>Total Types</th><th>Confidence</th></tr></thead>
+      <tbody>${agrRows || '<tr><td colspan="4" style="color:var(--text-dim)">No agreements</td></tr>'}</tbody>
+    </table>
+
+    ${clusterExtractions.length > 0 ? `
+    <div class="section-head">Extracted Values (${clusterExtractions.length} extractions)</div>
+    <table class="smart-grid">
+      <thead><tr><th>Agreement</th><th>Field</th><th>Value</th><th>Confidence</th></tr></thead>
+      <tbody>${extRows}</tbody>
+    </table>` : ''}
+  `;
+}
+
+// ═══════════════════════════════════════════════════════
+// LEVEL 3: DOCUMENT DETAIL
+// ═══════════════════════════════════════════════════════
+function openDocument(agrId) {
+  currentDoc = D.agreements.find(a => a.id === agrId);
+  if (!currentDoc) return;
+  goLevel(3);
+
+  const domainInfo = D._domainMap[currentDoc.domain_id];
+  const domainColor = domainInfo ? domainInfo.color : 'var(--accent)';
+
+  // Left: clause type cards + analysis
+  const ctCards = currentDoc.clause_types.map(ct => {
+    const cluster = D.clusters.find(c => c.id === ct.id);
+    const fieldCount = cluster ? cluster.field_count : 0;
+    return `<div class="ct-card" onclick="selectClusterFromDoc('${ct.id}')">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div class="ct-card-title">${esc(ct.label)}</div>
+        <span class="cr-rarity ${rarityClass(ct.rarity)}" style="font-size:8px;">${rarityLabel(ct.rarity)}</span>
+      </div>
+      <div class="ct-card-meta">
+        ${ct.clause_count} clauses · ${fieldCount} fields · in ${ct.doc_freq_pct}% of agreements
+      </div>
+      <div style="margin-top:6px;height:4px;background:rgba(255,255,255,0.06);border-radius:2px;">
+        <div style="width:${100 - ct.importance}%;height:100%;background:${domainColor};opacity:0.4;border-radius:2px;"></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  // Unclustered callout
+  const unclusteredHtml = currentDoc.unclustered_clauses > 0 ? `
+    <div style="padding:10px 14px;border-radius:8px;background:rgba(210,153,34,0.06);border:1px solid rgba(210,153,34,0.2);margin-top:8px;">
+      <div style="font-size:12px;color:var(--orange);font-weight:600;">⚠ ${currentDoc.unclustered_clauses} unclassified clauses</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:2px;">These clauses couldn't be automatically assigned. They may need manual review or represent novel clause patterns.</div>
+    </div>` : '';
+
+  // Composition analysis
+  const boilerplate = currentDoc.clause_types.filter(ct => ct.rarity === 'boilerplate').length;
+  const common = currentDoc.clause_types.filter(ct => ct.rarity === 'common').length;
+  const specialized = currentDoc.clause_types.filter(ct => ct.rarity === 'specialized').length;
+  const unique = currentDoc.clause_types.filter(ct => ct.rarity === 'unique').length;
+  const total = currentDoc.clause_types.length || 1;
+
+  const compBar = [
+    { count: unique, color: 'var(--pink)', label: 'Unique' },
+    { count: specialized, color: 'var(--purple)', label: 'Specialized' },
+    { count: common, color: 'var(--orange)', label: 'Common' },
+    { count: boilerplate, color: 'var(--text-dim)', label: 'Boilerplate' },
+  ].filter(s => s.count > 0);
+
+  document.getElementById('l3-left').innerHTML = `
+    <span class="back-btn" onclick="goLevel(2)">← Back to ${esc(currentDomain ? currentDomain.label : 'Domain')}</span>
+    <div class="doc-title">${esc(currentDoc.filename)}</div>
+    <div class="doc-meta-row">
+      <span><b>${currentDoc.n_clause_types}</b> document types</span>
+      <span><b>${currentDoc.n_clauses}</b> clauses</span>
+      <span>Domain: <span class="pill" style="background:${domainColor}22;color:${domainColor}">${esc(domainInfo ? domainInfo.label : 'Unknown')}</span></span>
+      <span>Confidence: <span class="conf-badge ${confClass(currentDoc.domain_confidence)}">${Math.round(currentDoc.domain_confidence * 100)}%</span></span>
+    </div>
+
+    <div class="section-head">Document Composition</div>
+    <div style="display:flex;gap:1px;height:10px;border-radius:5px;overflow:hidden;margin-bottom:6px;">
+      ${compBar.map(s => `<div style="flex:${s.count};background:${s.color};" title="${s.count} ${s.label}"></div>`).join('')}
+    </div>
+    <div style="display:flex;gap:12px;font-size:10px;color:var(--text-dim);margin-bottom:16px;">
+      ${compBar.map(s => `<span><span style="color:${s.color};">■</span> ${s.count} ${s.label} (${Math.round(s.count/total*100)}%)</span>`).join('')}
+    </div>
+
+    <div class="section-head">Clause Types (${currentDoc.clause_types.length})</div>
+    ${ctCards}
+    ${unclusteredHtml}
+  `;
+
+  // Right: Field editor / extractions
+  const extRows = currentDoc.extractions.map(e => {
+    const cc = confClass(e.confidence);
+    const needsReview = e.confidence < 0.5;
+    return `<tr${needsReview ? ' style="background:rgba(248,81,73,0.03);"' : ''}>
+      <td style="font-weight:500;white-space:nowrap;">${esc(e.field)}</td>
+      <td class="fe-val" title="${esc(e.value)}">${esc(e.value)}</td>
+      <td><span class="conf-badge ${cc}">${Math.round(e.confidence * 100)}%</span></td>
+      <td style="font-size:10px;color:var(--text-faint);white-space:nowrap;">${esc(e.cluster.length > 25 ? e.cluster.slice(0,23)+'…' : e.cluster)}</td>
+    </tr>`;
+  }).join('');
+
+  const highConf = currentDoc.extractions.filter(e => e.confidence >= 0.7).length;
+  const lowConf = currentDoc.extractions.filter(e => e.confidence < 0.5).length;
+
+  document.getElementById('l3-right').innerHTML = `
+    <div style="font-size:14px;font-weight:600;margin-bottom:12px;">Extracted Fields</div>
+
+    <div style="display:flex;gap:12px;margin-bottom:16px;">
+      <div class="health-card" style="flex:1;padding:10px;">
+        <div class="hc-val" style="font-size:16px;color:var(--green)">${highConf}</div>
+        <div class="hc-label">High confidence</div>
+      </div>
+      <div class="health-card" style="flex:1;padding:10px;">
+        <div class="hc-val" style="font-size:16px;color:var(--red)">${lowConf}</div>
+        <div class="hc-label">Needs review</div>
+      </div>
+      <div class="health-card" style="flex:1;padding:10px;">
+        <div class="hc-val" style="font-size:16px;color:var(--accent)">${currentDoc.extractions.length}</div>
+        <div class="hc-label">Total fields</div>
+      </div>
+    </div>
+
+    ${lowConf > 0 ? `<div style="padding:8px 10px;border-radius:6px;background:rgba(248,81,73,0.06);border:1px solid rgba(248,81,73,0.15);margin-bottom:12px;font-size:11px;">
+      <span style="color:var(--red);font-weight:600;">⚠ ${lowConf} fields</span>
+      <span style="color:var(--text-dim);"> flagged for human review (confidence &lt; 50%)</span>
+    </div>` : `<div style="padding:8px 10px;border-radius:6px;background:rgba(63,185,80,0.06);border:1px solid rgba(63,185,80,0.15);margin-bottom:12px;font-size:11px;">
+      <span style="color:var(--green);font-weight:600;">✓ All fields</span>
+      <span style="color:var(--text-dim);"> above review threshold</span>
+    </div>`}
+
+    <table class="field-editor">
+      <thead><tr><th>Field</th><th>Value</th><th>Conf.</th><th>Source Type</th></tr></thead>
+      <tbody>${extRows || '<tr><td colspan="4" style="color:var(--text-dim)">No extractions</td></tr>'}</tbody>
+    </table>
+  `;
+}
+
+function selectClusterFromDoc(clusterId) {
+  const cluster = D.clusters.find(c => c.id === clusterId);
+  if (!cluster) return;
+  const domain = D._domainMap[cluster.domain_id];
+  if (domain) {
+    currentDomain = domain;
+    openDomain(domain.id);
+    setTimeout(() => selectCluster(clusterId), 50);
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

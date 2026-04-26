@@ -1,0 +1,16 @@
+You are extracting structured data from a legal agreement section.
+
+CLAUSE TYPE: {cluster_label}
+CLAUSE DESCRIPTION: {cluster_description}
+KNOWN FIELDS FOR THIS CLAUSE TYPE:
+{field_definitions}
+
+{examples_section}
+
+AGREEMENT TEXT TO EXTRACT FROM:
+{text}
+
+For each field listed above, extract the value from the text. If a field is not present, return null.
+Include a confidence score (0.0-1.0) for each extraction.
+
+Respond in JSON: {"field_name": {"value": "...", "confidence": 0.0}, ...}

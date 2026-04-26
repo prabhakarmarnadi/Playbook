@@ -1,0 +1,9 @@
+You are labeling clusters of legal clauses found within {domain_label} agreements.
+
+Keywords for this cluster: {keywords}
+
+Representative clause excerpts:
+{excerpts}
+
+What type of legal clause is this? Respond in JSON:
+{"label": "clause type name like Payment Terms, Liability Limitation, Auto-Renewal", "description": "one sentence describing what this clause covers"}
