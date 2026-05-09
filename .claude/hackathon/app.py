@@ -47,6 +47,11 @@ SECTIONS = {
         ("🧮 Composite Fields",      "ui.composite_page"),
         ("✏️ Field CRUD",            "ui.field_crud_page"),
     ],
+    "📜 Playbooks": [
+        ("📜 Authoring", "ui.playbook_authoring_page"),
+        ("⛏️ Mining",   "ui.playbook_mining_page"),
+        ("🚨 Findings",  "ui.playbook_findings_page"),
+    ],
     "📊 Analyze": [
         ("📊 Dashboard",             "ui.dashboard_page"),
         ("🛡️ Risk & Portfolio",      "ui.risk_page"),

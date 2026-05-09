@@ -322,6 +322,16 @@ def test_aligner_isolates_callable_exceptions():
     print("  [PASS] Aligner isolates callable exceptions")
 
 
+def test_ui_modules_import():
+    """Validate: UI modules import without errors (manual visual check still required)."""
+    import importlib
+    for mod in ("ui.playbook_authoring_page",
+                "ui.playbook_mining_page",
+                "ui.playbook_findings_page"):
+        importlib.import_module(mod)
+    print("  [PASS] UI modules importable")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -337,6 +347,7 @@ CHECKS = [
     ("aligner_predicate_only",         test_aligner_predicate_only),
     ("aligner_combiner_severity",      test_aligner_combiner_severity),
     ("aligner_isolates_callable_exceptions", test_aligner_isolates_callable_exceptions),
+    ("ui_modules_import",              test_ui_modules_import),
 ]
 
 
