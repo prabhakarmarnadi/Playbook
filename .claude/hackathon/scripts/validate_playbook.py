@@ -127,6 +127,20 @@ def test_walmart_logic_parser():
     print("  [PASS] Walmart logic parser")
 
 
+def test_walmart_logic_paren_precedence():
+    """Validate: (A OR B) AND C parses as and(or(A,B), C), not or(A, and(B,C))."""
+    from core.playbooks.importers.walmart_logic import parse
+    rules = parse("1) IF (A_SP OR B_SS) AND C_SP IS SET --> Answer = Standard")
+    assert len(rules) == 1
+    pred = rules[0]["predicate"]
+    assert pred["op"] == "and", f"top-level op should be 'and', got {pred['op']}"
+    assert len(pred["args"]) == 2
+    inner_or = pred["args"][0]
+    assert inner_or["op"] == "or" and {a["args"][0] for a in inner_or["args"]} == {"A_SP", "B_SS"}
+    assert pred["args"][1]["op"] == "field.exists" and pred["args"][1]["args"] == ["C_SP"]
+    print("  [PASS] Walmart logic paren precedence")
+
+
 def test_tabular_importer_cloudera():
     """Validate: tabular importer ingests Cloudera xlsx and produces ≥10 rules."""
     if not (FIX / "cloudera.xlsx").exists():
@@ -152,8 +166,9 @@ CHECKS = [
     ("store_crud_roundtrip",      test_store_crud_roundtrip),
     ("models_roundtrip",          test_models_roundtrip),
     ("predicate_dsl_examples",    test_predicate_dsl_examples),
-    ("walmart_logic_parser",      test_walmart_logic_parser),
-    ("tabular_importer_cloudera", test_tabular_importer_cloudera),
+    ("walmart_logic_parser",           test_walmart_logic_parser),
+    ("walmart_logic_paren_precedence", test_walmart_logic_paren_precedence),
+    ("tabular_importer_cloudera",      test_tabular_importer_cloudera),
 ]
 
 
