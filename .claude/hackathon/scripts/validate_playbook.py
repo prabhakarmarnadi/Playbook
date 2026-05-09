@@ -65,11 +65,59 @@ def test_models_roundtrip():
     print("  [PASS] Pydantic round-trip")
 
 
+def test_predicate_dsl_examples():
+    """Validate: each spec §5 example evaluates correctly."""
+    from core.playbooks.predicates.evaluator import evaluate
+
+    # Walmart-style OR
+    ctx = {"fields": {"Indemnification_Standard_SP": "yes"}}
+    p = {"op": "or", "args": [
+        {"op": "field.exists", "args": ["Indemnification_Standard_SP"]},
+        {"op": "field.exists", "args": ["Indemnification_Standard_SS"]},
+    ]}
+    assert evaluate(p, ctx) is True
+
+    # Cloudera-style regex
+    ctx = {"fields": {"late_payment_penalty": "1.5%"}}
+    p = {"op": "field.matches",
+         "args": ["late_payment_penalty", "regex", r"\d+(\.\d+)?%"]}
+    assert evaluate(p, ctx) is True
+
+    # AI Playbook AND/OR with numeric gte
+    ctx = {"fields": {"liability_cap_amount": 300000, "liability_cap_ratio_fees": 0.5}}
+    p = {"op": "and", "args": [
+        {"op": "field.exists", "args": ["liability_cap_amount"]},
+        {"op": "or", "args": [
+            {"op": "field.gte", "args": ["liability_cap_amount", 250000]},
+            {"op": "field.gte", "args": ["liability_cap_ratio_fees", 1.0]},
+        ]},
+    ]}
+    assert evaluate(p, ctx) is True
+
+    # if_then with violated consequent
+    ctx = {"fields": {"governing_law": "New York", "arbitration_venue": "Delaware"}}
+    p = {"op": "if_then", "args": [
+        {"op": "field.eq", "args": ["governing_law", "New York"]},
+        {"op": "field.eq", "args": ["arbitration_venue", "New York"]},
+    ]}
+    assert evaluate(p, ctx) is False
+
+    # any_of over clauses
+    ctx = {"clauses": [{"label": "Indemnification"}, {"label": "Limitation of Liability"}]}
+    p = {"op": "any_of", "args": [
+        {"op": "clause.classified_as", "args": ["Indemnification"]},
+    ]}
+    assert evaluate(p, ctx) is True
+
+    print("  [PASS] DSL examples (5 sub-cases)")
+
+
 CHECKS = [
     ("package_importable", test_package_importable),
     ("store_schema_idempotent", test_store_schema_idempotent),
     ("store_crud_roundtrip",    test_store_crud_roundtrip),
     ("models_roundtrip",        test_models_roundtrip),
+    ("predicate_dsl_examples",  test_predicate_dsl_examples),
 ]
 
 
