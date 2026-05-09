@@ -179,6 +179,25 @@ def test_narrative_importer_docusign():
     print(f"  [PASS] Docusign narrative importer ({len(rules)} rules)")
 
 
+def test_desirable_importer_ai_playbook():
+    """Validate: desirable/undesirable docx importer extracts rule + ref + walkaway."""
+    src = FIX / "sample_ai.docx"
+    if not src.exists():
+        print("  [SKIP] sample_ai fixture missing"); return
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.importers.desirable import import_docx
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = import_docx(s, str(src), name="Sample AI")
+        rules = s.list_rules(pid)
+        assert len(rules) >= 3
+        assert any(r.get("reference_text") for r in rules)
+        assert any(r.get("walkaway_language") for r in rules)
+        s.close()
+    print(f"  [PASS] AI Playbook docx importer ({len(rules)} rules)")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -189,6 +208,7 @@ CHECKS = [
     ("walmart_logic_paren_precedence", test_walmart_logic_paren_precedence),
     ("tabular_importer_cloudera",      test_tabular_importer_cloudera),
     ("narrative_importer_docusign",    test_narrative_importer_docusign),
+    ("desirable_importer_ai_playbook", test_desirable_importer_ai_playbook),
 ]
 
 
