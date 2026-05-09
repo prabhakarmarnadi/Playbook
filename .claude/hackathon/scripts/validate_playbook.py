@@ -50,10 +50,26 @@ def test_store_crud_roundtrip():
     print("  [PASS] CRUD round-trip")
 
 
+def test_models_roundtrip():
+    """Validate: Pydantic models round-trip a Rule with predicate JSON."""
+    from core.playbooks.models import Rule, Severity, AppliesTo
+    r = Rule(
+        rule_id="r1", playbook_id="p1", title="cap",
+        applies_to=AppliesTo.field, severity=Severity.warn,
+        predicate={"op": "field.gte", "args": ["cap", 250000]},
+    )
+    j = r.model_dump_json()
+    r2 = Rule.model_validate_json(j)
+    assert r2.predicate == r.predicate
+    assert r2.severity == Severity.warn
+    print("  [PASS] Pydantic round-trip")
+
+
 CHECKS = [
     ("package_importable", test_package_importable),
     ("store_schema_idempotent", test_store_schema_idempotent),
     ("store_crud_roundtrip",    test_store_crud_roundtrip),
+    ("models_roundtrip",        test_models_roundtrip),
 ]
 
 
