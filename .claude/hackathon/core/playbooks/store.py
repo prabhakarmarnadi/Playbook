@@ -99,7 +99,7 @@ class PlaybookStore:
         )""")
 
     # ── playbooks ─────────────────────────────────────────────────────────
-    def create_playbook(self, name: str, owner_org: str = "",
+    def create_playbook(self, *, name: str, owner_org: str = "",
                          description: str = "", source_file: str = "") -> str:
         pid = str(uuid.uuid4())
         self.conn.execute(
@@ -110,22 +110,24 @@ class PlaybookStore:
         return pid
 
     def get_playbook(self, playbook_id: str) -> Optional[dict]:
-        row = self.conn.execute(
+        cur = self.conn.execute(
             "SELECT * FROM playbooks WHERE playbook_id=?", [playbook_id]
-        ).fetchone()
+        )
+        cols = [d[0] for d in cur.description]
+        row = cur.fetchone()
         if not row:
             return None
-        cols = [d[0] for d in self.conn.description]
         return dict(zip(cols, row))
 
     def list_playbooks(self, status: Optional[str] = None) -> list[dict]:
         if status:
-            rows = self.conn.execute(
+            cur = self.conn.execute(
                 "SELECT * FROM playbooks WHERE status=? ORDER BY name", [status]
-            ).fetchall()
+            )
         else:
-            rows = self.conn.execute("SELECT * FROM playbooks ORDER BY name").fetchall()
-        cols = [d[0] for d in self.conn.description]
+            cur = self.conn.execute("SELECT * FROM playbooks ORDER BY name")
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
         return [dict(zip(cols, r)) for r in rows]
 
     # ── rules ─────────────────────────────────────────────────────────────
@@ -147,11 +149,12 @@ class PlaybookStore:
         return rid
 
     def list_rules(self, playbook_id: str) -> list[dict]:
-        rows = self.conn.execute(
+        cur = self.conn.execute(
             "SELECT * FROM playbook_rules WHERE playbook_id=? ORDER BY title",
             [playbook_id],
-        ).fetchall()
-        cols = [d[0] for d in self.conn.description]
+        )
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
         out = []
         for r in rows:
             d = dict(zip(cols, r))
@@ -182,10 +185,11 @@ class PlaybookStore:
         return bid
 
     def bindings_for(self, rule_id: str) -> list[dict]:
-        rows = self.conn.execute(
+        cur = self.conn.execute(
             "SELECT * FROM rule_bindings WHERE rule_id=?", [rule_id]
-        ).fetchall()
-        cols = [d[0] for d in self.conn.description]
+        )
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
         return [dict(zip(cols, r)) for r in rows]
 
     # ── evaluations ───────────────────────────────────────────────────────
@@ -201,20 +205,21 @@ class PlaybookStore:
                 deviation,evidence,rationale,evaluator_used)
                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             [eid, rule_id, agreement_id, run_id, outcome,
-             json.dumps(answer_value) if answer_value else None,
+             json.dumps(answer_value) if answer_value is not None else None,
              severity, deviation,
-             json.dumps(evidence) if evidence else None,
+             json.dumps(evidence) if evidence is not None else None,
              rationale,
-             json.dumps(evaluator_used) if evaluator_used else None],
+             json.dumps(evaluator_used) if evaluator_used is not None else None],
         )
         return eid
 
     def findings_for_run(self, run_id: str) -> list[dict]:
-        rows = self.conn.execute(
+        cur = self.conn.execute(
             "SELECT * FROM rule_evaluations WHERE run_id=? ORDER BY severity DESC",
             [run_id],
-        ).fetchall()
-        cols = [d[0] for d in self.conn.description]
+        )
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchall()
         out = []
         for r in rows:
             d = dict(zip(cols, r))
