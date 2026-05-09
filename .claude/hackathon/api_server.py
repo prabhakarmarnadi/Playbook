@@ -19,6 +19,9 @@ from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from config import DATA_DIR
+from core.playbooks.store import PlaybookStore
+from core.playbooks.importers import import_file as _pb_import_file
+from core.playbooks.aligner import align as _pb_align
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S")
@@ -220,3 +223,59 @@ async def health():
         "cuda_device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
         "cuml_available": cuml_available(),
     }
+
+
+# ── Playbook endpoints ─────────────────────────────────────────────────────────
+
+class PlaybookImportRequest(BaseModel):
+    path: str = Field(..., description="Absolute path to xlsx or docx playbook")
+    name: str | None = None
+    owner_org: str | None = None
+
+
+@app.post("/playbooks/import")
+def playbooks_import(req: PlaybookImportRequest):
+    """Import a playbook from an xlsx or docx file and return its ID."""
+    s = PlaybookStore(os.environ.get("DB_PATH", "data/evoc_200_refined.duckdb"))
+    pid = _pb_import_file(s, req.path, name=req.name, owner_org=req.owner_org or "")
+    s.close()
+    return {"playbook_id": pid}
+
+
+@app.get("/playbooks/{playbook_id}")
+def playbooks_get(playbook_id: str):
+    """Fetch a playbook and its rules by ID."""
+    s = PlaybookStore(os.environ.get("DB_PATH", "data/evoc_200_refined.duckdb"))
+    pb = s.get_playbook(playbook_id)
+    if not pb:
+        s.close()
+        raise HTTPException(status_code=404, detail="not found")
+    rules = s.list_rules(playbook_id)
+    s.close()
+    return {"playbook": pb, "rules": rules}
+
+
+class AlignRequest(BaseModel):
+    agreement_id: str
+    fields: dict | None = None
+    clauses: list[dict] | None = None
+
+
+@app.post("/playbooks/{playbook_id}/run")
+def playbooks_run(playbook_id: str, req: AlignRequest):
+    """Run alignment of an agreement against a playbook and return findings."""
+    s = PlaybookStore(os.environ.get("DB_PATH", "data/evoc_200_refined.duckdb"))
+    ctx = {"agreement_id": req.agreement_id,
+           "fields": req.fields or {}, "clauses": req.clauses or []}
+    findings = _pb_align(s, playbook_id, ctx)
+    s.close()
+    return {"findings": findings}
+
+
+@app.get("/findings/{run_id}")
+def findings_get(run_id: str):
+    """Retrieve all findings recorded for a given alignment run_id."""
+    s = PlaybookStore(os.environ.get("DB_PATH", "data/evoc_200_refined.duckdb"))
+    rows = s.findings_for_run(run_id)
+    s.close()
+    return {"findings": rows}

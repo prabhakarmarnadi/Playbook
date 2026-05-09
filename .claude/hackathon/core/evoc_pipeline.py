@@ -1956,6 +1956,8 @@ if __name__ == "__main__":
                         help="Use dspy.RLM for field discovery (explores all chunks programmatically)")
     parser.add_argument("--min-instances", type=int, default=10,
                         help="Min clauses per cluster for deviation/playbook scoring (default: 10)")
+    parser.add_argument("--playbook", default=None,
+                        help="Playbook ID to evaluate against after extraction (optional)")
     args = parser.parse_args()
 
     result = run_evoc_pipeline(
@@ -2019,3 +2021,26 @@ if __name__ == "__main__":
         run_analytics(_db_path,
                       use_llm_risk=args.use_llm_risk,
                       min_instances=args.min_instances)
+
+    # ── Playbook Alignment ──
+    if args.playbook:
+        from core.playbooks.store import PlaybookStore
+        from core.playbooks.aligner import align
+        from core.store import ClusteringStore
+        pb = PlaybookStore(_db_path)
+        _cl_store = ClusteringStore(_db_path)
+        all_findings = []
+        for ag in _cl_store.get_agreements():
+            extractions = _cl_store.get_extractions(agreement_id=ag["agreement_id"])
+            fields = {e.get("field_name") or e.get("field_id"): e.get("value")
+                      for e in extractions}
+            clauses_rows = _cl_store.get_clauses(agreement_id=ag["agreement_id"])
+            clauses = [{"id": c.get("clause_id"),
+                        "label": c.get("clause_type") or c.get("clause_type_id"),
+                        "text": c.get("text")} for c in clauses_rows]
+            ctx = {"agreement_id": ag["agreement_id"],
+                   "fields": fields, "clauses": clauses}
+            all_findings.extend(align(pb, args.playbook, ctx))
+        _cl_store.close()
+        pb.close()
+        logger.info(f"Playbook alignment: {len(all_findings)} findings")

@@ -332,6 +332,44 @@ def test_ui_modules_import():
     print("  [PASS] UI modules importable")
 
 
+def test_benchmark_migration():
+    """Validate: migration script lifts existing playbook_benchmarks rows into a playbook."""
+    import os
+    import tempfile
+    import duckdb
+    # Use mkstemp then unlink so duckdb can create the file fresh (NamedTemporaryFile
+    # pre-creates an empty file that duckdb rejects as "not a valid DuckDB database file").
+    fd, db_path = tempfile.mkstemp(suffix=".duckdb")
+    os.close(fd)
+    os.unlink(db_path)
+    try:
+        # seed legacy benchmark
+        c = duckdb.connect(db_path)
+        c.execute("""CREATE TABLE IF NOT EXISTS playbook_benchmarks (
+            cluster_id VARCHAR, cluster_label VARCHAR, benchmark_clause_id VARCHAR,
+            benchmark_text TEXT, source VARCHAR, mean_deviation DOUBLE,
+            std_deviation DOUBLE, n_clauses INTEGER)""")
+        c.execute("""INSERT INTO playbook_benchmarks VALUES
+                     ('c1','Indemnification','b1','standard text','centroid',0.1,0.05,42)""")
+        c.close()
+
+        from scripts.migrate_benchmarks_to_playbook import migrate
+        pid = migrate(db_path, name="Auto-mined baseline")
+
+        from core.playbooks.store import PlaybookStore
+        s = PlaybookStore(db_path)
+        rules = s.list_rules(pid)
+        assert len(rules) == 1
+        assert rules[0]["reference_text"] == "standard text"
+        s.close()
+    finally:
+        for ext in ("", ".wal"):
+            p = db_path + ext
+            if os.path.exists(p):
+                os.unlink(p)
+    print("  [PASS] Benchmark migration")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -348,6 +386,7 @@ CHECKS = [
     ("aligner_combiner_severity",      test_aligner_combiner_severity),
     ("aligner_isolates_callable_exceptions", test_aligner_isolates_callable_exceptions),
     ("ui_modules_import",              test_ui_modules_import),
+    ("benchmark_migration",            test_benchmark_migration),
 ]
 
 
