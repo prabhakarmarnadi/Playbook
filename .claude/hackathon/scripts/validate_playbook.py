@@ -18,8 +18,42 @@ def test_package_importable():
     print("  [PASS] Package import")
 
 
+def test_store_schema_idempotent():
+    """Validate: PlaybookStore creates 5 tables and is safe to re-init."""
+    from core.playbooks.store import PlaybookStore
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s1 = PlaybookStore(tf.name)
+        s2 = PlaybookStore(tf.name)  # second init must not fail
+        tables = {r[0] for r in s1.conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+        ).fetchall()}
+        for required in ("playbooks", "playbook_rules", "rule_bindings",
+                          "rule_revisions", "rule_evaluations"):
+            assert required in tables, f"missing table: {required}"
+        s1.close(); s2.close()
+    print("  [PASS] Schema idempotent (5 tables)")
+
+
+def test_store_crud_roundtrip():
+    """Validate: insert + fetch a playbook and a rule round-trips fields."""
+    from core.playbooks.store import PlaybookStore
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="Demo", owner_org="Acme")
+        rid = s.create_rule(playbook_id=pid, title="LoL cap",
+                             applies_to="field", severity="warn",
+                             predicate={"op": "field.gte", "args": ["cap", 250000]})
+        rules = s.list_rules(pid)
+        assert len(rules) == 1 and rules[0]["rule_id"] == rid
+        assert rules[0]["predicate"]["op"] == "field.gte"
+        s.close()
+    print("  [PASS] CRUD round-trip")
+
+
 CHECKS = [
     ("package_importable", test_package_importable),
+    ("store_schema_idempotent", test_store_schema_idempotent),
+    ("store_crud_roundtrip",    test_store_crud_roundtrip),
 ]
 
 
