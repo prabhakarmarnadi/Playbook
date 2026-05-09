@@ -202,6 +202,37 @@ def test_desirable_importer_ai_playbook():
     print(f"  [PASS] AI Playbook docx importer ({len(rules)} rules)")
 
 
+def test_miner_proposes_candidates():
+    """Validate: miner emits ≥1 coverage and ≥1 distribution candidate from a fake corpus."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.miner import mine_candidates
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        # synthetic corpus: 20 MSAs, 19 of which contain the "Indemnification" cluster
+        corpus = {
+            "domain_clusters": {
+                "msa": {"Indemnification": 19, "Other": 5},
+            },
+            "field_values": {
+                "msa::Limitation of Liability::cap_amount":
+                    [250_000] * 18 + [None, 500_000],
+            },
+        }
+        pid = s.create_playbook(name="mined")
+        cands = mine_candidates(s, pid, corpus, n_total_per_domain=20)
+        coverage = [c for c in cands if c["kind"] == "coverage"]
+        distribution = [c for c in cands if c["kind"] == "distribution"]
+        assert coverage, "no coverage candidates"
+        assert distribution, "no distribution candidates"
+        # all should be inserted as draft rules
+        rules = s.list_rules(pid)
+        assert all(r["status"] == "draft" for r in rules)
+        s.close()
+    print(f"  [PASS] Miner produced {len(cands)} candidates")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -213,6 +244,7 @@ CHECKS = [
     ("tabular_importer_cloudera",      test_tabular_importer_cloudera),
     ("narrative_importer_docusign",    test_narrative_importer_docusign),
     ("desirable_importer_ai_playbook", test_desirable_importer_ai_playbook),
+    ("miner_proposes_candidates",      test_miner_proposes_candidates),
 ]
 
 
