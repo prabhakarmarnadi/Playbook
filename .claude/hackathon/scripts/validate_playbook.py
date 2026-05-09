@@ -284,6 +284,44 @@ def test_aligner_combiner_severity():
     print("  [PASS] Aligner combiner")
 
 
+def test_aligner_isolates_callable_exceptions():
+    """Validate: a crashing embed/nl_judge does not kill align(); rule degrades to needs_human."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.aligner import align
+
+    def boom_embed(_text):
+        raise RuntimeError("embed crashed")
+
+    def boom_judge(_assertion, _evidence):
+        raise RuntimeError("judge crashed")
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="x")
+        # Rule that exercises BOTH similarity (with reference_text) AND nl_judge.
+        # No predicate → NL gate is open, so both evaluators are invoked and BOTH crash.
+        s.create_rule(playbook_id=pid, title="brittle", applies_to="cluster",
+                       severity="warn",
+                       reference_text="standard text",
+                       nl_assertion="assertion",
+                       similarity_threshold=0.15,
+                       status="active")
+        ctx = {
+            "agreement_id": "a1",
+            "clauses": [{"id": "c1", "text": "some clause text"}],
+            "embed": boom_embed,
+            "nl_judge": boom_judge,
+        }
+        findings = align(s, pid, ctx)
+        assert len(findings) == 1
+        # Both evaluators returned None → no outcomes → combiner returns needs_human
+        assert findings[0]["outcome"] == "needs_human", \
+            f"expected needs_human, got {findings[0]['outcome']}"
+        s.close()
+    print("  [PASS] Aligner isolates callable exceptions")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -298,6 +336,7 @@ CHECKS = [
     ("miner_proposes_candidates",      test_miner_proposes_candidates),
     ("aligner_predicate_only",         test_aligner_predicate_only),
     ("aligner_combiner_severity",      test_aligner_combiner_severity),
+    ("aligner_isolates_callable_exceptions", test_aligner_isolates_callable_exceptions),
 ]
 
 

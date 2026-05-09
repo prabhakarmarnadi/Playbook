@@ -53,12 +53,15 @@ def _eval_similarity(rule: dict, ctx: dict) -> Optional[float]:
     )
     if not target:
         return None
-    a = np.asarray(embed(target))
-    b = np.asarray(embed(ref))
-    if a.size == 0 or b.size == 0:
+    try:
+        a = np.asarray(embed(target))
+        b = np.asarray(embed(ref))
+        if a.size == 0 or b.size == 0:
+            return None
+        cos = float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
+        return max(0.0, 1.0 - cos)
+    except Exception:
         return None
-    cos = float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
-    return max(0.0, 1.0 - cos)
 
 
 def _eval_nl(rule: dict, ctx: dict) -> Optional[tuple[str, str]]:
@@ -69,7 +72,10 @@ def _eval_nl(rule: dict, ctx: dict) -> Optional[tuple[str, str]]:
     evidence = ctx.get("clause_text") or "\n".join(
         c.get("text", "") for c in ctx.get("clauses", [])[:5]
     )
-    return judge(assertion, evidence)
+    try:
+        return judge(assertion, evidence)
+    except Exception:
+        return None
 
 
 def align(store: PlaybookStore, playbook_id: str, ctx: dict) -> list[dict]:
