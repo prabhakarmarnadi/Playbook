@@ -112,12 +112,48 @@ def test_predicate_dsl_examples():
     print("  [PASS] DSL examples (5 sub-cases)")
 
 
+FIX = Path(__file__).parent.parent / "tests_fixtures" / "playbooks"
+
+
+def test_walmart_logic_parser():
+    """Validate: 'IF X_SP IS SET --> Answer = Standard' parses to predicate JSON."""
+    from core.playbooks.importers.walmart_logic import parse
+    src = "1) IF X_Std_SP IS SET --> Answer = Standard\n2) IF X_NonStd_SP IS SET --> Answer = Non-Standard"
+    rules = parse(src)
+    assert len(rules) >= 2
+    std = next(r for r in rules if r["answer"] == "Standard")
+    assert std["predicate"]["op"] == "field.exists"
+    assert std["predicate"]["args"] == ["X_Std_SP"]
+    print("  [PASS] Walmart logic parser")
+
+
+def test_tabular_importer_cloudera():
+    """Validate: tabular importer ingests Cloudera xlsx and produces ≥10 rules."""
+    if not (FIX / "cloudera.xlsx").exists():
+        print("  [SKIP] cloudera fixture missing"); return
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.importers.tabular import import_xlsx
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = import_xlsx(s, str(FIX / "cloudera.xlsx"), name="Cloudera")
+        rules = s.list_rules(pid)
+        assert len(rules) >= 10, f"too few rules: {len(rules)}"
+        # round-trip provenance
+        prov = rules[0]["source_provenance"]
+        assert prov and "row" in prov
+        s.close()
+    print(f"  [PASS] Cloudera importer ({len(rules)} rules)")
+
+
 CHECKS = [
-    ("package_importable", test_package_importable),
-    ("store_schema_idempotent", test_store_schema_idempotent),
-    ("store_crud_roundtrip",    test_store_crud_roundtrip),
-    ("models_roundtrip",        test_models_roundtrip),
-    ("predicate_dsl_examples",  test_predicate_dsl_examples),
+    ("package_importable",        test_package_importable),
+    ("store_schema_idempotent",   test_store_schema_idempotent),
+    ("store_crud_roundtrip",      test_store_crud_roundtrip),
+    ("models_roundtrip",          test_models_roundtrip),
+    ("predicate_dsl_examples",    test_predicate_dsl_examples),
+    ("walmart_logic_parser",      test_walmart_logic_parser),
+    ("tabular_importer_cloudera", test_tabular_importer_cloudera),
 ]
 
 
