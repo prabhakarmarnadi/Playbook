@@ -75,10 +75,11 @@ def import_docx(store: PlaybookStore, path: str, *,
 
         # Desirable → reference_text (the preferred/model clause language)
         # Undesirable → walkaway_language (the language to avoid / triggers escalation)
-        # If undesirable column is empty, fall back to desirable so that
-        # walkaway_language is always populated when sample language exists.
+        # When Undesirable cell is empty, walkaway_language is None — do NOT
+        # fall back to the desirable clause; that would corrupt the alignment
+        # engine's anti-pattern matching (reference_text ≠ walkaway_language).
         reference_text = desirable or None
-        walkaway_language = undesirable if undesirable else (desirable or None)
+        walkaway_language = undesirable or None
 
         rid = store.create_rule(
             playbook_id=pid,
