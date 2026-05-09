@@ -160,6 +160,25 @@ def test_tabular_importer_cloudera():
     print(f"  [PASS] Cloudera importer ({len(rules)} rules)")
 
 
+def test_narrative_importer_docusign():
+    """Validate: narrative importer ingests Docusign MSA sheet without crashing."""
+    src = FIX / "docusign.xlsx"
+    if not src.exists():
+        print("  [SKIP] docusign fixture missing"); return
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.importers.narrative import import_xlsx
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = import_xlsx(s, str(src), name="Docusign")
+        rules = s.list_rules(pid)
+        assert len(rules) >= 5, f"too few rules: {len(rules)}"
+        # at least one with escalation_owner set
+        assert any(r.get("escalation_owner") for r in rules)
+        s.close()
+    print(f"  [PASS] Docusign narrative importer ({len(rules)} rules)")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -169,6 +188,7 @@ CHECKS = [
     ("walmart_logic_parser",           test_walmart_logic_parser),
     ("walmart_logic_paren_precedence", test_walmart_logic_paren_precedence),
     ("tabular_importer_cloudera",      test_tabular_importer_cloudera),
+    ("narrative_importer_docusign",    test_narrative_importer_docusign),
 ]
 
 
