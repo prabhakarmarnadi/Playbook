@@ -233,6 +233,57 @@ def test_miner_proposes_candidates():
     print(f"  [PASS] Miner produced {len(cands)} candidates")
 
 
+def test_aligner_predicate_only():
+    """Validate: aligner runs a predicate-only rule and writes a Finding."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.aligner import align
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="t")
+        rid = s.create_rule(
+            playbook_id=pid, title="cap >= 250k",
+            applies_to="field", severity="warn",
+            predicate={"op": "field.gte", "args": ["cap", 250000]},
+            status="active",
+        )
+        ctx = {"agreement_id": "a1", "fields": {"cap": 100000}}
+        findings = align(s, pid, ctx)
+        assert len(findings) == 1
+        assert findings[0]["outcome"] == "fail"
+        # second run identical → determinism
+        findings2 = align(s, pid, ctx)
+        assert findings2[0]["outcome"] == findings[0]["outcome"]
+        s.close()
+    print("  [PASS] Aligner predicate-only + determinism")
+
+
+def test_aligner_combiner_severity():
+    """Validate: when predicate fails AND nl_judge stub passes, outcome is fail (combiner rule)."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.aligner import align
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="t")
+        rid = s.create_rule(
+            playbook_id=pid, title="combo",
+            applies_to="field", severity="approval_required",
+            predicate={"op": "field.gte", "args": ["cap", 999999]},  # fails
+            nl_assertion="liability cap is reasonable",  # stub will say pass
+            status="active",
+        )
+        ctx = {"agreement_id": "a1", "fields": {"cap": 100000},
+                "nl_judge": lambda assertion, evidence: ("pass", "stubbed")}
+        findings = align(s, pid, ctx)
+        assert findings[0]["outcome"] == "fail"  # predicate fail dominates
+        assert findings[0]["severity"] == "approval_required"
+        s.close()
+    print("  [PASS] Aligner combiner")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -245,6 +296,8 @@ CHECKS = [
     ("narrative_importer_docusign",    test_narrative_importer_docusign),
     ("desirable_importer_ai_playbook", test_desirable_importer_ai_playbook),
     ("miner_proposes_candidates",      test_miner_proposes_candidates),
+    ("aligner_predicate_only",         test_aligner_predicate_only),
+    ("aligner_combiner_severity",      test_aligner_combiner_severity),
 ]
 
 
