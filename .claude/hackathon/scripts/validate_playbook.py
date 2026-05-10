@@ -687,6 +687,15 @@ def test_end_to_end_corpus_to_alignment():
         n_rebound = soft_rebind(pb, embed=fake_embed, cluster_centroids=centroids, threshold=0.5)
         assert n_rebound >= 1, f"expected at least 1 rebound, got {n_rebound}"
 
+        # After rebind, re-align to demonstrate the outcomes change from n/a to pass/fail.
+        # The coverage rule's binding label:MSA was bound to "d1" by soft_rebind above.
+        ctx2 = agreement_ctx(cs, "a19")
+        findings2 = align(pb, pid, ctx2)
+        # Expect at least one rule with a non-n/a outcome — the coverage rule scoped to MSA
+        # now finds the agreement IS in MSA, runs its predicate, and reports fail (no clauses on a19).
+        non_na = [f for f in findings2 if f["outcome"] != "n/a"]
+        assert non_na, f"after rebind, expected ≥1 non-n/a finding, got: {[f['outcome'] for f in findings2]}"
+
         cs.close() if hasattr(cs, "close") else None
         pb.close()
     finally:

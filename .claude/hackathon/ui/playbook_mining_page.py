@@ -32,11 +32,15 @@ def render(store=None):  # noqa: ANN001 — store ignored; kept for app.py compa
             from core.playbooks.miner_runner import run_miner
             from config import DB_PATH
             cs = ClusteringStore(DB_PATH)
-            new_pid, cands = run_miner(cs, ps, playbook_name=new_name)
-            by_kind = {}
-            for c in cands:
-                by_kind[c["kind"]] = by_kind.get(c["kind"], 0) + 1
-            st.success(f"Mined {len(cands)} candidates: {by_kind}")
+            try:
+                new_pid, cands = run_miner(cs, ps, playbook_name=new_name)
+                by_kind = {}
+                for c in cands:
+                    by_kind[c["kind"]] = by_kind.get(c["kind"], 0) + 1
+                st.success(f"Mined {len(cands)} candidates: {by_kind}")
+            finally:
+                if hasattr(cs, "close"):
+                    cs.close()
             st.rerun()
 
     playbooks = ps.list_playbooks()

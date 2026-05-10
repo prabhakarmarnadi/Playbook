@@ -20,7 +20,8 @@ def _get_playbook_store() -> PlaybookStore:
 _OUTCOME_ICON = {
     "pass": "✅",
     "fail": "❌",
-    "needs_human": "🔶",
+    "needs_human": "👤",
+    "n/a": "⚪",
 }
 
 _SEV_SORT = {"approval_required": 0, "warn": 1, "info": 2}
@@ -58,10 +59,13 @@ def render(store=None):  # noqa: ANN001 — store ignored; kept for app.py compa
         with st.spinner("Running alignment..."):
             try:
                 cs = ClusteringStore(DB_PATH)
-                ctx = agreement_ctx(cs, agreement_id)
-                if hasattr(cs, "close"):
-                    cs.close()
-                findings = align(ps, playbook_id, ctx)
+                try:
+                    ctx = agreement_ctx(cs, agreement_id)
+                    findings = align(ps, playbook_id, ctx)
+                    st.success(f"{len(findings)} rules evaluated")
+                finally:
+                    if hasattr(cs, "close"):
+                        cs.close()
             except Exception as exc:
                 st.error(f"Alignment error: {exc}")
                 findings = []

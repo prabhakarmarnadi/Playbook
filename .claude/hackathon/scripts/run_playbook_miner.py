@@ -23,15 +23,19 @@ def main():
 
     cs = ClusteringStore(args.db_path)
     pb = PlaybookStore(args.db_path)
-    pid, cands = run_miner(cs, pb, playbook_name=args.name)
-    pb.close()
-    print(f"playbook_id={pid}")
-    print(f"candidates={len(cands)}")
-    by_kind = {}
-    for c in cands:
-        by_kind[c["kind"]] = by_kind.get(c["kind"], 0) + 1
-    for kind, count in sorted(by_kind.items()):
-        print(f"  {kind}: {count}")
+    try:
+        pid, cands = run_miner(cs, pb, playbook_name=args.name)
+        print(f"playbook_id={pid}")
+        print(f"candidates={len(cands)}")
+        by_kind = {}
+        for c in cands:
+            by_kind[c["kind"]] = by_kind.get(c["kind"], 0) + 1
+        for kind, count in sorted(by_kind.items()):
+            print(f"  {kind}: {count}")
+    finally:
+        pb.close()
+        if hasattr(cs, "close"):
+            cs.close()
 
 
 if __name__ == "__main__":
