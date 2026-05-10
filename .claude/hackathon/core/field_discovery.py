@@ -24,6 +24,9 @@ from dataclasses import dataclass
 from dotenv import load_dotenv
 load_dotenv()
 
+from config import MAX_CONCURRENT_LLM as _MAX_CONCURRENT_LLM
+MAX_CONCURRENT_LLM = _MAX_CONCURRENT_LLM
+
 logger = logging.getLogger(__name__)
 
 
@@ -970,17 +973,17 @@ def run_field_discovery(
     total_extractions = 0
     skipped_low_confidence = 0
 
-    for ci, cluster in enumerate(clusters):
+    # ── Phase 1 (serial): fetch chunk_rows and prep per-cluster context.
+    # ── DuckDB connection is not thread-safe for parallel reads on the same conn,
+    # ── so reads stay serial. Only the slow LLM step is fanned out below.
+    cluster_prep: list[dict | None] = []
+    for cluster in clusters:
         cluster_id = cluster["cluster_id"]
         cluster_label = cluster["label"] or "Unknown"
         try:
             keywords = json.loads(cluster.get("keywords", "[]")) if isinstance(cluster.get("keywords"), str) else (cluster.get("keywords") or [])
         except json.JSONDecodeError:
             keywords = []
-
-        # Build ARM relationship context for this cluster
-        arm_context = _build_arm_context(cluster_label, relationship_layer)
-
         chunk_rows = store.conn.execute("""
             SELECT ch.chunk_id, ch.chunk_text, ch.agreement_id
             FROM chunks ch
@@ -988,40 +991,73 @@ def run_field_discovery(
             WHERE ca.cluster_id = ?
             ORDER BY ch.chunk_index
         """, [cluster_id]).fetchdf().to_dict("records")
-
         if len(chunk_rows) < min_cluster_chunks:
+            cluster_prep.append(None)
             continue
+        cluster_prep.append({
+            "cluster_id": cluster_id,
+            "cluster_label": cluster_label,
+            "keywords": keywords,
+            "arm_context": _build_arm_context(cluster_label, relationship_layer),
+            "chunk_rows": chunk_rows,
+            "chunk_texts": [r["chunk_text"] for r in chunk_rows],
+        })
 
+    # ── Phase 2 (parallel): one discover_fields LLM call per cluster.
+    def _discover_one(idx: int):
+        p = cluster_prep[idx]
+        if p is None:
+            return idx, None, None
+        cl = p["cluster_label"]
+        kw = p["keywords"]
+        ct = p["chunk_texts"]
+        ar = p["arm_context"]
+        try:
+            if use_rlm == "hybrid":
+                _f, _hm = discover_fields_hybrid(client, deployment, cl, kw, ct, config)
+                return idx, _f, _hm
+            if use_rlm:
+                _f = discover_fields_for_cluster_rlm(cl, kw, ct, config)
+                if not _f:
+                    logger.info(f"    RLM returned no fields for {cl}, falling back to standard")
+                    _f = discover_fields_for_cluster(client, deployment, cl, kw, ct, config, arm_context=ar)
+                return idx, _f, None
+            _f = discover_fields_for_cluster(client, deployment, cl, kw, ct, config, arm_context=ar)
+            return idx, _f, None
+        except Exception as e:
+            logger.warning(f"    discover_fields failed for {cl}: {e}")
+            return idx, [], None
+
+    eligible = [i for i, p in enumerate(cluster_prep) if p is not None]
+    discoveries: dict[int, tuple[list, dict | None]] = {i: (None, None) for i in range(len(cluster_prep))}
+    if eligible:
+        n_workers = min(MAX_CONCURRENT_LLM, len(eligible))
+        progress("field_discovery", f"  Parallel field discovery: {len(eligible)} clusters × {n_workers} workers")
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            futures = [pool.submit(_discover_one, i) for i in eligible]
+            for fut in as_completed(futures):
+                i, fields, hybrid_meta = fut.result()
+                discoveries[i] = (fields, hybrid_meta)
+
+    # ── Phase 3 (serial persist + parallel-per-chunk extract): existing loop ─
+    for ci, cluster in enumerate(clusters):
+        prep = cluster_prep[ci]
+        if prep is None:
+            continue
+        cluster_id = prep["cluster_id"]
+        cluster_label = prep["cluster_label"]
+        keywords = prep["keywords"]
+        arm_context = prep["arm_context"]
+        chunk_rows = prep["chunk_rows"]
         progress("field_discovery", f"  [{ci+1}/{len(clusters)}] {cluster_label} ({len(chunk_rows)} chunks)")
 
-        # Step 1: Discover fields
-        chunk_texts = [r["chunk_text"] for r in chunk_rows]
-        hybrid_meta = None
-        if use_rlm == "hybrid":
-            fields, hybrid_meta = discover_fields_hybrid(
-                client, deployment, cluster_label, keywords, chunk_texts, config,
-            )
+        fields, hybrid_meta = discoveries.get(ci, (None, None))
+        if hybrid_meta:
             progress("field_discovery",
                      f"    Hybrid: {hybrid_meta['strategy']} — "
                      f"std={hybrid_meta['standard_count']} ({hybrid_meta['standard_time']}s) "
                      f"rlm={hybrid_meta['rlm_count']} ({hybrid_meta['rlm_time']}s) "
                      f"merged={hybrid_meta['merged_count']} {hybrid_meta['source_breakdown']}")
-        elif use_rlm:
-            fields = discover_fields_for_cluster_rlm(
-                cluster_label, keywords, chunk_texts, config,
-            )
-            if not fields:
-                # Fallback to standard on RLM failure
-                logger.info(f"    RLM returned no fields, falling back to standard")
-                fields = discover_fields_for_cluster(
-                    client, deployment, cluster_label, keywords, chunk_texts, config,
-                    arm_context=arm_context,
-                )
-        else:
-            fields = discover_fields_for_cluster(
-                client, deployment, cluster_label, keywords, chunk_texts, config,
-                arm_context=arm_context,
-            )
         if not fields:
             progress("field_discovery", f"    No fields discovered")
             continue

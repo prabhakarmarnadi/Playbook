@@ -706,6 +706,37 @@ def test_end_to_end_corpus_to_alignment():
     print("  [PASS] End-to-end corpus → mine → align integration")
 
 
+def test_macro_label_parallelism():
+    """label_macro_clusters fans out across topics — N stub LLM calls finish in <2× single-call latency."""
+    import time
+    from unittest.mock import MagicMock
+    from core.macro_clusterer import label_macro_clusters
+
+    # Stub topic_model with N>1 topics + matching get_topic / get_representative_docs
+    n_topics = 8
+    topic_info_rows = [{"Topic": -1, "Count": 1}] + [{"Topic": i, "Count": 5} for i in range(n_topics)]
+    import pandas as _pd
+    topic_info = _pd.DataFrame(topic_info_rows)
+    topic_model = MagicMock()
+    topic_model.get_topic_info.return_value = topic_info
+    topic_model.get_topic.side_effect = lambda tid: [(f"kw{tid}_{i}", 0.1) for i in range(5)]
+    topic_model.get_representative_docs.side_effect = lambda tid: [f"doc {tid}-{i} text..." for i in range(3)]
+
+    # Stub LLM whose complete_json sleeps 0.3s — N sequential = 2.4s, fan-out = ~0.3-0.5s
+    class _SlowLLM:
+        def complete_json(self, prompt, **kw):
+            time.sleep(0.3)
+            return {"label": "X", "description": "y"}
+
+    t0 = time.time()
+    labels = label_macro_clusters(_SlowLLM(), topic_model)
+    elapsed = time.time() - t0
+    assert -1 in labels and len(labels) == n_topics + 1
+    # Hard upper-bound: must be well under sequential (n_topics × 0.3s = 2.4s)
+    assert elapsed < 1.5, f"label_macro_clusters not parallel; elapsed={elapsed:.2f}s for {n_topics} topics @ 0.3s each"
+    print(f"  [PASS] Macro label parallelism ({n_topics} topics in {elapsed:.2f}s, sequential would be {n_topics*0.3:.1f}s)")
+
+
 def test_gemini_backend_smoke():
     """Live smoke: GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT set →
     LLMClient(backend='gemini').complete('ping') returns non-empty text.
@@ -747,6 +778,7 @@ CHECKS = [
     ("miner_outlier_candidates",       test_miner_outlier_candidates),
     ("miner_runner_aggregation",       test_miner_runner_aggregates_clustering_store),
     ("end_to_end_corpus_to_alignment", test_end_to_end_corpus_to_alignment),
+    ("macro_label_parallelism",        test_macro_label_parallelism),
     ("gemini_backend_smoke",            test_gemini_backend_smoke),
 ]
 

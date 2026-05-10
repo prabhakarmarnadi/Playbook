@@ -126,7 +126,7 @@ RRF_K = int(os.getenv("RRF_K", "60"))  # RRF constant
 # ── Extraction ─────────────────────────────────────────────────────────────────
 # Legacy: HyDE query → AIFlow embedding → AIDB ANN → AIFlow extraction (4 network hops)
 # V2: Direct embedding + FAISS local search + direct LLM call (0 network hops for search)
-MAX_CONCURRENT_LLM = int(os.getenv("MAX_CONCURRENT_LLM", "5"))
+MAX_CONCURRENT_LLM = int(os.getenv("MAX_CONCURRENT_LLM", "16"))
 EXAMPLE_SET_SIZE = int(os.getenv("EXAMPLE_SET_SIZE", "20"))
 
 # ── Legacy Legal Stopwords (from bertopic_clusterer.py) ────────────────────────

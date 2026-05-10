@@ -720,6 +720,17 @@ def run_evoc_pipeline(
     db = Path(db_path) if db_path else DATA_DIR / f"{account_id}.duckdb"
     lance = Path(lance_path) if lance_path else DATA_DIR / f"{account_id}.lance"
 
+    # Auto-fallback CUDA → CPU when GPU unavailable. Respects user override (cpu/cuda).
+    if device == "cuda":
+        try:
+            import torch
+            if not torch.cuda.is_available():
+                logger.warning("CUDA requested but torch.cuda.is_available()=False — falling back to CPU")
+                device = "cpu"
+        except Exception as _e:
+            logger.warning(f"torch import failed ({_e}); falling back to CPU")
+            device = "cpu"
+
     store = ClusteringStore(db)
     lance_store = LanceVectorStore(lance)
     run_id = f"run_{uuid.uuid4().hex[:8]}"

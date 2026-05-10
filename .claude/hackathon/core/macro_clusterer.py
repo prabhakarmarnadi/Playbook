@@ -16,6 +16,7 @@ We make only 5-10 LLM calls to label the resulting macro clusters.
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 from bertopic import BERTopic
@@ -25,6 +26,7 @@ from sklearn.feature_extraction.text import CountVectorizer
 
 from config import (
     MACRO_MIN_CLUSTER_SIZE, MACRO_MIN_SAMPLES, LEGAL_STOPWORDS,
+    MAX_CONCURRENT_LLM,
 )
 from core.embedder import Embedder
 from core.llm_client import LLMClient
@@ -192,19 +194,18 @@ def label_macro_clusters(llm: LLMClient, topic_model: BERTopic) -> dict[int, dic
     Legacy equivalent: topic_namer.py OpenAI calls for topic naming.
     V2 difference: Returns structured JSON with label + description, not just a name.
     """
-    labels = {}
+    labels: dict[int, dict] = {}
     topic_info = topic_model.get_topic_info()
 
+    # Pre-build a list of (topic_id, prompt) pairs; mark id=-1 as the noise bucket.
+    work: list[tuple[int, str]] = []
     for _idx, row in topic_info.iterrows():
-        topic_id = row["Topic"]
-
+        topic_id = int(row["Topic"])
         if topic_id == -1:
             labels[-1] = {"label": "Uncategorized", "description": "Documents not assigned to a domain"}
             continue
-
         keywords = [w for w, _ in topic_model.get_topic(topic_id)]
         rep_docs = topic_model.get_representative_docs(topic_id)
-
         prompt = f"""You are labeling a group of legal agreements that were automatically clustered together.
 
 Keywords for this cluster: {', '.join(keywords[:10])}
@@ -214,10 +215,25 @@ Representative document excerpts (first 200 chars each):
 
 What type of agreement domain is this? Respond in JSON:
 {{"label": "short name like SaaS, NDA, Employment, Vendor, Lease", "description": "one sentence describing this domain"}}"""
+        work.append((topic_id, prompt))
 
-        result = llm.complete_json(prompt)
-        labels[topic_id] = result
-        logger.info(f"  Domain {topic_id}: {result.get('label', '?')}")
+    # Fan out the LLM calls. Each topic is independent.
+    if not work:
+        return labels
+
+    def _label_one(item: tuple[int, str]) -> tuple[int, dict]:
+        tid, p = item
+        try:
+            result = llm.complete_json(p)
+        except Exception as e:
+            logger.warning(f"  Domain {tid} labeling failed ({e}); using fallback")
+            result = {"label": f"Domain_{tid}", "description": ""}
+        return tid, result
+
+    with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT_LLM, max(1, len(work)))) as pool:
+        for tid, result in pool.map(_label_one, work):
+            labels[tid] = result
+            logger.info(f"  Domain {tid}: {result.get('label', '?')}")
 
     return labels
 
