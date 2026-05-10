@@ -12,6 +12,22 @@ Combiner policy:
   - If any evaluator says fail   → outcome = fail
   - If all set evaluators pass   → outcome = pass
   - Otherwise                    → outcome = needs_human
+
+Scoping (§8 step 2):
+  applies_to=document    — full ctx, no filter
+  applies_to=domain      — fire only if ctx["domain"]["id"] matches a binding entity_id
+  applies_to=cluster     — restrict ctx["clauses"] to those with cluster_id in bindings
+  applies_to=field       — restrict ctx["fields"] to keys in bindings
+  applies_to=composite   — restrict ctx["composites"] to keys in bindings
+  applies_to=cross_field — full ctx (predicate references multiple fields directly)
+
+  Bindings with entity_id starting "label:" are unresolved soft bindings and
+  never match real ontology IDs. A rule whose only bindings are unresolved
+  reports outcome="n/a".
+
+  Legacy fallback: a rule with ZERO bindings and a non-document applies_to scope
+  is treated as applies_to=document so that tests written before binding support
+  was added continue to pass unchanged.
 """
 from __future__ import annotations
 import uuid
@@ -21,6 +37,55 @@ import numpy as np
 
 from .predicates.evaluator import evaluate
 from .store import PlaybookStore
+
+
+def _scope_ctx(rule: dict, bindings: list[dict], ctx: dict) -> Optional[dict]:
+    """Return a NEW ctx dict scoped to the rule's applies_to + bindings.
+
+    Returns None when:
+    - All bindings are unresolved (entity_id starts with "label:"), OR
+    - applies_to=domain and ctx's domain id doesn't match any resolved binding.
+
+    Never mutates the input ctx.
+    """
+    applies_to = rule.get("applies_to") or "document"
+
+    # Partition bindings into resolved vs. unresolved (soft).
+    resolved = [b for b in bindings if not b["entity_id"].startswith("label:")]
+    unresolved = [b for b in bindings if b["entity_id"].startswith("label:")]
+
+    # If every binding is unresolved, this rule has no real ontology anchor → n/a.
+    if bindings and not resolved:
+        return None
+
+    # No-op scopes: document and cross_field pass ctx through unchanged.
+    if applies_to in ("document", "cross_field"):
+        return ctx
+
+    resolved_ids = {b["entity_id"] for b in resolved}
+
+    if applies_to == "domain":
+        domain = ctx.get("domain") or {}
+        if domain.get("id") in resolved_ids:
+            return ctx
+        # Domain doesn't match any resolved binding → out of scope.
+        return None
+
+    if applies_to == "cluster":
+        all_clauses = ctx.get("clauses") or []
+        filtered = [c for c in all_clauses if c.get("cluster_id") in resolved_ids]
+        # Return a shallow copy with filtered clauses; even if empty, let the
+        # predicate decide — the predicate may legitimately report "no clauses found".
+        return {**ctx, "clauses": filtered}
+
+    if applies_to in ("field", "composite"):
+        src_key = "fields" if applies_to == "field" else "composites"
+        src = ctx.get(src_key) or {}
+        filtered = {k: v for k, v in src.items() if k in resolved_ids}
+        return {**ctx, src_key: filtered}
+
+    # Unknown applies_to value — pass through unchanged rather than hard-failing.
+    return ctx
 
 
 def _evaluator_used(rule: dict) -> dict:
@@ -85,6 +150,28 @@ def align(store: PlaybookStore, playbook_id: str, ctx: dict) -> list[dict]:
 
     rules = [r for r in store.list_rules(playbook_id) if r["status"] == "active"]
     for rule in rules:
+        bindings = store.bindings_for(rule["rule_id"])
+
+        # Legacy fallback: a rule with no bindings AND a non-document applies_to scope
+        # behaves like applies_to=document so tests written before binding support was
+        # added continue to pass without constructing bindings in their setup.
+        if not bindings and rule.get("applies_to") not in (None, "document"):
+            scoped_ctx = ctx
+        else:
+            scoped_ctx = _scope_ctx(rule, bindings, ctx)
+
+        if scoped_ctx is None:
+            # All bindings unresolved, or domain/scope filter found no match → n/a.
+            eid = store.record_eval(
+                rule_id=rule["rule_id"], agreement_id=agreement_id, run_id=run_id,
+                outcome="n/a", severity=rule["severity"], deviation=0.0,
+                rationale="rule out of scope for this agreement",
+                evaluator_used={"predicate": False, "similarity": False, "nl": False},
+            )
+            out.append({"eval_id": eid, "rule_id": rule["rule_id"], "outcome": "n/a",
+                        "severity": rule["severity"], "deviation": 0.0, "evidence": []})
+            continue
+
         evaluator_used = _evaluator_used(rule)
         outcomes: list[str] = []
         rationale_parts: list[str] = []
@@ -93,7 +180,7 @@ def align(store: PlaybookStore, playbook_id: str, ctx: dict) -> list[dict]:
 
         # 1. predicate
         if evaluator_used["predicate"]:
-            ok = _eval_predicate(rule, ctx)
+            ok = _eval_predicate(rule, scoped_ctx)
             if ok is True:
                 outcomes.append("pass")
             elif ok is False:
@@ -104,7 +191,7 @@ def align(store: PlaybookStore, playbook_id: str, ctx: dict) -> list[dict]:
 
         # 2. similarity
         if evaluator_used["similarity"]:
-            d = _eval_similarity(rule, ctx)
+            d = _eval_similarity(rule, scoped_ctx)
             if d is None:
                 pass
             else:
@@ -120,7 +207,7 @@ def align(store: PlaybookStore, playbook_id: str, ctx: dict) -> list[dict]:
             (not evaluator_used["predicate"]) or "needs_human" in outcomes
         )
         if run_nl:
-            res = _eval_nl(rule, ctx)
+            res = _eval_nl(rule, scoped_ctx)
             if res is not None:
                 verdict, why = res
                 outcomes.append("fail" if verdict == "fail"
@@ -137,7 +224,7 @@ def align(store: PlaybookStore, playbook_id: str, ctx: dict) -> list[dict]:
 
         evidence = [{"clause_id": c.get("id"),
                      "text": (c.get("text") or "")[:300]}
-                    for c in ctx.get("clauses", [])[:3]]
+                    for c in scoped_ctx.get("clauses", [])[:3]]
 
         eid = store.record_eval(
             rule_id=rule["rule_id"], agreement_id=agreement_id, run_id=run_id,

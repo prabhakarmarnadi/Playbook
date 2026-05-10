@@ -322,6 +322,91 @@ def test_aligner_isolates_callable_exceptions():
     print("  [PASS] Aligner isolates callable exceptions")
 
 
+def test_aligner_applies_to_domain_dispatch():
+    """Rule with applies_to=domain bound to MSA only fires when ctx.domain.id matches."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.aligner import align
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="t")
+        rid = s.create_rule(playbook_id=pid, title="msa-must-have-indem",
+                             applies_to="domain", severity="warn",
+                             predicate={"op": "any_of", "args": [
+                                 {"op": "clause.classified_as", "args": ["Indemnification"]}
+                             ]},
+                             status="active")
+        s.add_binding(rule_id=rid, entity_kind="domain", entity_id="dom_msa",
+                       label_text="MSA", confidence=1.0)
+
+        # Match: agreement is in MSA domain → predicate evaluates → fail (no Indemnification clause)
+        ctx_match = {"agreement_id": "a1", "domain": {"id": "dom_msa", "name": "MSA"},
+                      "clauses": [{"label": "Other"}]}
+        findings = align(s, pid, ctx_match)
+        assert findings[0]["outcome"] == "fail", f"expected fail, got {findings[0]['outcome']}"
+
+        # Mismatch: agreement is in NDA domain → rule scoped out → n/a
+        ctx_other = {"agreement_id": "a2", "domain": {"id": "dom_nda", "name": "NDA"},
+                      "clauses": [{"label": "Other"}]}
+        findings = align(s, pid, ctx_other)
+        assert findings[0]["outcome"] == "n/a", f"expected n/a, got {findings[0]['outcome']}"
+        s.close()
+    print("  [PASS] Aligner applies_to=domain dispatch")
+
+
+def test_aligner_applies_to_cluster_filters_clauses():
+    """Rule with applies_to=cluster bound to cluster_X only sees clauses with that cluster_id."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.aligner import align
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="t")
+        rid = s.create_rule(playbook_id=pid, title="indem-clause-present",
+                             applies_to="cluster", severity="warn",
+                             predicate={"op": "any_of", "args": [
+                                 {"op": "clause.classified_as", "args": ["Indemnification"]}
+                             ]},
+                             status="active")
+        s.add_binding(rule_id=rid, entity_kind="cluster", entity_id="clu_indem",
+                       label_text="Indemnification", confidence=1.0)
+
+        ctx = {"agreement_id": "a1",
+                "clauses": [
+                    {"cluster_id": "clu_indem", "label": "Indemnification", "text": "..."},
+                    {"cluster_id": "clu_other", "label": "Termination",   "text": "..."},
+                ]}
+        findings = align(s, pid, ctx)
+        # Only the Indemnification clause is in scope → predicate passes
+        assert findings[0]["outcome"] == "pass", f"expected pass, got {findings[0]['outcome']}"
+        s.close()
+    print("  [PASS] Aligner applies_to=cluster filters clauses")
+
+
+def test_aligner_unresolved_binding_is_na():
+    """Rule with only label:* bindings (unresolved soft binding) reports n/a."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.aligner import align
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="t")
+        rid = s.create_rule(playbook_id=pid, title="unresolved",
+                             applies_to="cluster", severity="warn",
+                             predicate={"op": "field.gte", "args": ["x", 0]},
+                             status="active")
+        s.add_binding(rule_id=rid, entity_kind="cluster", entity_id="label:Indemnification",
+                       label_text="Indemnification", confidence=0.5)
+        ctx = {"agreement_id": "a1", "fields": {"x": 999}, "clauses": []}
+        findings = align(s, pid, ctx)
+        assert findings[0]["outcome"] == "n/a", f"expected n/a, got {findings[0]['outcome']}"
+        s.close()
+    print("  [PASS] Aligner unresolved binding is n/a")
+
+
 def test_ui_modules_import():
     """Validate: UI modules import without errors (manual visual check still required)."""
     import importlib
@@ -385,6 +470,9 @@ CHECKS = [
     ("aligner_predicate_only",         test_aligner_predicate_only),
     ("aligner_combiner_severity",      test_aligner_combiner_severity),
     ("aligner_isolates_callable_exceptions", test_aligner_isolates_callable_exceptions),
+    ("aligner_applies_to_domain_dispatch",   test_aligner_applies_to_domain_dispatch),
+    ("aligner_applies_to_cluster_filters_clauses", test_aligner_applies_to_cluster_filters_clauses),
+    ("aligner_unresolved_binding_is_na",     test_aligner_unresolved_binding_is_na),
     ("ui_modules_import",              test_ui_modules_import),
     ("benchmark_migration",            test_benchmark_migration),
 ]
