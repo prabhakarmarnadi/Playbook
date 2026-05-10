@@ -4,6 +4,7 @@ Discovers clause co-occurrence patterns, term packages, and dependency chains.
 """
 import json
 import logging
+import os
 import uuid
 
 import numpy as np
@@ -21,8 +22,29 @@ except ImportError:
     logger.warning("mlxtend not available — ARM mining disabled")
 
 
+# Skip ARM when the corpus has fewer than this many transactions (documents).
+# FP-Growth on tiny but wide matrices (few docs × many clause types) can
+# explode combinatorially and produces no statistically meaningful rules anyway.
+ARM_MIN_TRANSACTIONS = int(os.getenv("ARM_MIN_TRANSACTIONS", "20"))
+
+
 def mlxtend_available() -> bool:
     return _MLXTEND_AVAILABLE
+
+
+def _too_small(matrix: pd.DataFrame, label: str) -> bool:
+    """Bail out before fpgrowth if the matrix is too small to produce
+    statistically meaningful rules. Logs once per stage."""
+    if matrix.empty:
+        return True
+    n_docs = matrix.shape[0]
+    if n_docs < ARM_MIN_TRANSACTIONS:
+        logger.info(
+            f"ARM/{label}: skipping ({n_docs} transactions < ARM_MIN_TRANSACTIONS={ARM_MIN_TRANSACTIONS}). "
+            "Tiny corpora cannot produce statistically meaningful association rules."
+        )
+        return True
+    return False
 
 
 def build_clause_presence_matrix(
@@ -44,7 +66,7 @@ def mine_global(
     matrix: pd.DataFrame,
     config: dict | None = None,
 ) -> list[dict]:
-    if not _MLXTEND_AVAILABLE or matrix.empty:
+    if not _MLXTEND_AVAILABLE or _too_small(matrix, "mine_global"):
         return []
     cfg = config or CLAUSE_ARM_DEFAULTS["global"]
     min_support = cfg.get("min_support", 0.20)
@@ -134,7 +156,7 @@ def discover_term_packages(
     matrix: pd.DataFrame,
     config: dict | None = None,
 ) -> list[dict]:
-    if not _MLXTEND_AVAILABLE or matrix.empty:
+    if not _MLXTEND_AVAILABLE or _too_small(matrix, "discover_term_packages"):
         return []
     cfg = config or CLAUSE_ARM_DEFAULTS.get("term_packages", {})
     min_support = cfg.get("min_support", 0.15)

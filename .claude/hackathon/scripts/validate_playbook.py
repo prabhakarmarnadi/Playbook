@@ -706,6 +706,29 @@ def test_end_to_end_corpus_to_alignment():
     print("  [PASS] End-to-end corpus → mine → align integration")
 
 
+def test_arm_skips_tiny_corpora():
+    """ARM mine_global / discover_term_packages must early-exit on tiny matrices
+    (avoiding combinatorial blowup of FP-Growth on N docs × many wide columns)."""
+    import time
+    import pandas as pd
+    from core.arm.arm_miner import mine_global, discover_term_packages
+
+    # Synthetic 5-doc matrix with 30 'clause types' — same shape that hung the
+    # pipeline in the field. Without the guard this would burn many minutes.
+    n_docs, n_types = 5, 30
+    matrix = pd.DataFrame(
+        {f"clause_{i}": [1, 1, 0, 1, 0] for i in range(n_types)},
+        index=[f"doc_{i}" for i in range(n_docs)],
+    )
+    t0 = time.time()
+    rules = mine_global(matrix)
+    pkgs = discover_term_packages(matrix)
+    elapsed = time.time() - t0
+    assert rules == [] and pkgs == []
+    assert elapsed < 1.0, f"ARM didn't bypass tiny corpus; elapsed={elapsed:.2f}s"
+    print(f"  [PASS] ARM tiny-corpus guard ({n_docs}×{n_types} bypassed in {elapsed*1000:.0f}ms)")
+
+
 def test_macro_label_parallelism():
     """label_macro_clusters fans out across topics — N stub LLM calls finish in <2× single-call latency."""
     import time
@@ -815,6 +838,7 @@ CHECKS = [
     ("miner_outlier_candidates",       test_miner_outlier_candidates),
     ("miner_runner_aggregation",       test_miner_runner_aggregates_clustering_store),
     ("end_to_end_corpus_to_alignment", test_end_to_end_corpus_to_alignment),
+    ("arm_skips_tiny_corpora",         test_arm_skips_tiny_corpora),
     ("macro_label_parallelism",        test_macro_label_parallelism),
     ("gemini_openai_compat_shim",       test_gemini_openai_compat_shim),
     ("gemini_backend_smoke",            test_gemini_backend_smoke),
