@@ -507,6 +507,196 @@ def test_agreement_ctx_recovers_field_names():
     print("  [PASS] agreement_ctx recovers field names")
 
 
+def test_miner_categorical_mode_candidates():
+    """Validate: dominant string mode produces field.eq enum rule."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.miner import mine_candidates
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="cat")
+        # 9/10 Delaware, 1 Texas → dominant
+        corpus = {
+            "domain_clusters": {},
+            "field_values": {
+                "msa::Governing Law::governing_law": ["Delaware"] * 9 + ["Texas"],
+            },
+        }
+        cands = mine_candidates(s, pid, corpus, n_total_per_domain=10)
+        cat = [c for c in cands if c["kind"] == "categorical"]
+        assert cat, f"expected categorical candidate, got kinds: {[c['kind'] for c in cands]}"
+        rules = s.list_rules(pid)
+        rule = next(r for r in rules if "categorical" in (r.get("tags") or []))
+        assert rule["predicate"]["op"] == "field.eq"
+        assert rule["predicate"]["args"] == ["governing_law", "Delaware"]
+        s.close()
+    print(f"  [PASS] Miner categorical-mode candidates ({len(cat)})")
+
+
+def test_miner_outlier_candidates():
+    """Validate: cluster outlier signal produces similarity rule with reference_text."""
+    import tempfile
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.miner import mine_candidates
+
+    with tempfile.NamedTemporaryFile(suffix=".duckdb") as tf:
+        s = PlaybookStore(tf.name)
+        pid = s.create_playbook(name="out")
+        corpus = {
+            "domain_clusters": {},
+            "field_values": {},
+            "cluster_outliers": {
+                "Indemnification": {
+                    "reference_text": "standard indemnification language ...",
+                    "outlier_pct": 0.15,
+                    "n": 42,
+                },
+            },
+        }
+        cands = mine_candidates(s, pid, corpus, n_total_per_domain=42)
+        out = [c for c in cands if c["kind"] == "outlier"]
+        assert out, f"expected outlier candidate, got kinds: {[c['kind'] for c in cands]}"
+        rules = s.list_rules(pid)
+        rule = next(r for r in rules if "outlier" in (r.get("tags") or []))
+        assert rule["reference_text"].startswith("standard")
+        assert rule["similarity_threshold"] == 0.85
+        s.close()
+    print(f"  [PASS] Miner outlier candidates ({len(out)})")
+
+
+def test_miner_runner_aggregates_clustering_store():
+    """build_corpus reads ClusteringStore tables and returns the right shape."""
+    import os
+    import tempfile
+    from core.store import ClusteringStore
+    from core.playbooks.miner_runner import build_corpus
+
+    fd, db_path = tempfile.mkstemp(suffix=".duckdb")
+    os.close(fd)
+    os.unlink(db_path)
+    try:
+        cs = ClusteringStore(db_path)
+        cs.conn.execute("INSERT INTO domains (domain_id, label) VALUES ('d1','MSA'), ('d2','NDA')")
+        for i in range(20):
+            cs.conn.execute(
+                "INSERT INTO agreements (agreement_id, filename, domain_id) VALUES (?,?,?)",
+                [f"a{i}", f"f{i}.pdf", "d1" if i < 18 else "d2"]
+            )
+        cs.conn.execute("INSERT INTO clusters (cluster_id, domain_id, label) VALUES "
+                         "('c_indem','d1','Indemnification'),('c_other','d1','Termination')")
+        # 19 of 20 agreements have an Indemnification clause, but only first 18 are MSA (i=0..17)
+        # i=18 is NDA (i>=18). So MSA agreements with clauses: i=0..17 = 18 docs.
+        for i in range(19):
+            cs.conn.execute(
+                "INSERT INTO clauses (clause_id, agreement_id, clause_type_id, full_text) VALUES (?,?,?,?)",
+                [f"cl_{i}", f"a{i}", "c_indem", f"indemnification clause {i}"]
+            )
+        cs.conn.execute(
+            "INSERT INTO field_definitions (field_id, cluster_id, name, field_type) VALUES (?,?,?,?)",
+            ["f_cap", "c_indem", "liability_cap_amount", "number"]
+        )
+        for i, val in enumerate([100000]*15 + [250000]*4):
+            cs.conn.execute(
+                "INSERT INTO extractions (extraction_id, agreement_id, field_id, value) VALUES (?,?,?,?)",
+                [f"e_{i}", f"a{i}", "f_cap", str(val)]
+            )
+
+        corpus, totals = build_corpus(cs)
+        assert totals["MSA"] == 18, f"expected MSA=18, got {totals}"
+        assert corpus["domain_clusters"]["MSA"]["Indemnification"] == 18, \
+            f"expected 18, got {corpus['domain_clusters']['MSA']}"
+        key = "MSA::Indemnification::liability_cap_amount"
+        assert key in corpus["field_values"], list(corpus["field_values"].keys())
+        # All values were numeric strings → coerced to float
+        nums = [v for v in corpus["field_values"][key] if isinstance(v, float)]
+        assert len(nums) >= 15, f"expected >=15 numeric values, got {len(nums)}"
+        cs.close() if hasattr(cs, "close") else None
+    finally:
+        for ext in ("", ".wal"):
+            p = db_path + ext
+            if os.path.exists(p):
+                os.unlink(p)
+    print("  [PASS] miner_runner aggregates clustering store")
+
+
+def test_end_to_end_corpus_to_alignment():
+    """INTEGRATION: corpus → mine → accept → align fires the right rules on a synthetic doc."""
+    import os
+    import tempfile
+    from core.store import ClusteringStore
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.miner_runner import run_miner
+    from core.playbooks.aligner import align
+    from core.playbooks.integration import agreement_ctx
+
+    fd, db_path = tempfile.mkstemp(suffix=".duckdb")
+    os.close(fd)
+    os.unlink(db_path)
+    try:
+        cs = ClusteringStore(db_path)
+        # Seed: 20 MSAs, 19 with Indemnification, all with cap_amount around $100K
+        cs.conn.execute("INSERT INTO domains (domain_id, label) VALUES ('d1','MSA')")
+        for i in range(20):
+            cs.conn.execute(
+                "INSERT INTO agreements (agreement_id, filename, domain_id) VALUES (?,?,?)",
+                [f"a{i}", f"f{i}.pdf", "d1"]
+            )
+        cs.conn.execute("INSERT INTO clusters (cluster_id, domain_id, label) VALUES ('c1','d1','Indemnification')")
+        for i in range(19):
+            cs.conn.execute(
+                "INSERT INTO clauses (clause_id, agreement_id, clause_type_id, full_text) VALUES (?,?,?,?)",
+                [f"cl_{i}", f"a{i}", "c1", "indemnification text"]
+            )
+        cs.conn.execute(
+            "INSERT INTO field_definitions (field_id, cluster_id, name, field_type) VALUES (?,?,?,?)",
+            ["f1", "c1", "cap_amount", "number"]
+        )
+        for i in range(19):
+            cs.conn.execute(
+                "INSERT INTO extractions (extraction_id, agreement_id, field_id, value) VALUES (?,?,?,?)",
+                [f"e_{i}", f"a{i}", "f1", "100000"]
+            )
+        # Now mine
+        pb = PlaybookStore(db_path)
+        pid, cands = run_miner(cs, pb, playbook_name="MinedDraft")
+        assert any(c["kind"] == "coverage" for c in cands)
+        # Promote ALL drafts to active so we can align
+        for r in pb.list_rules(pid):
+            pb.update_rule_status(r["rule_id"], "active")
+
+        # Align against agreement a19 (MSA but NO indemnification clause and NO cap extracted)
+        ctx = agreement_ctx(cs, "a19")
+        findings = align(pb, pid, ctx)
+        # Confirm we got SOME findings.
+        assert len(findings) > 0, "expected at least one finding"
+
+        # Now do soft_rebind so the label binding resolves to a real entity_id
+        from core.playbooks.miner import soft_rebind
+
+        def fake_embed(text):
+            # length-3 embedding: vowels, consonants, len
+            v = sum(1 for ch in text.lower() if ch in "aeiou")
+            c = sum(1 for ch in text.lower() if ch.isalpha() and ch not in "aeiou")
+            return [v, c, len(text)]
+
+        centroids = {
+            "d1": {"label": "MSA", "embedding": fake_embed("MSA")},
+            "c1": {"label": "Indemnification", "embedding": fake_embed("Indemnification")},
+        }
+        n_rebound = soft_rebind(pb, embed=fake_embed, cluster_centroids=centroids, threshold=0.5)
+        assert n_rebound >= 1, f"expected at least 1 rebound, got {n_rebound}"
+
+        cs.close() if hasattr(cs, "close") else None
+        pb.close()
+    finally:
+        for ext in ("", ".wal"):
+            p = db_path + ext
+            if os.path.exists(p):
+                os.unlink(p)
+    print("  [PASS] End-to-end corpus → mine → align integration")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -528,6 +718,10 @@ CHECKS = [
     ("ui_modules_import",              test_ui_modules_import),
     ("benchmark_migration",            test_benchmark_migration),
     ("agreement_ctx_recovers_field_names", test_agreement_ctx_recovers_field_names),
+    ("miner_categorical_mode",         test_miner_categorical_mode_candidates),
+    ("miner_outlier_candidates",       test_miner_outlier_candidates),
+    ("miner_runner_aggregation",       test_miner_runner_aggregates_clustering_store),
+    ("end_to_end_corpus_to_alignment", test_end_to_end_corpus_to_alignment),
 ]
 
 

@@ -21,6 +21,24 @@ def render(store=None):  # noqa: ANN001 — store ignored; kept for app.py compa
     st.caption("Review miner-proposed draft rules and promote or retire them.")
 
     ps = _get_playbook_store()
+
+    # Mine from corpus (gap-close)
+    with st.expander("⛏️ Mine from corpus"):
+        st.caption("Build a fresh draft playbook from cluster coverage, "
+                   "field distributions, categorical modes, and clause outliers in the current DuckDB.")
+        new_name = st.text_input("New playbook name", value="Auto-mined draft")
+        if st.button("Mine candidates now"):
+            from core.store import ClusteringStore
+            from core.playbooks.miner_runner import run_miner
+            from config import DB_PATH
+            cs = ClusteringStore(DB_PATH)
+            new_pid, cands = run_miner(cs, ps, playbook_name=new_name)
+            by_kind = {}
+            for c in cands:
+                by_kind[c["kind"]] = by_kind.get(c["kind"], 0) + 1
+            st.success(f"Mined {len(cands)} candidates: {by_kind}")
+            st.rerun()
+
     playbooks = ps.list_playbooks()
 
     if not playbooks:
