@@ -124,9 +124,15 @@ def _safe_dbcv(topics: np.ndarray, embeddings: np.ndarray) -> float:
 
     DBCV computes a pairwise distance matrix — O(n²) time and memory.
     For >5000 non-outlier points this takes minutes per call and the metric
-    is unreliable on high-dimensional embeddings anyway.  We skip it for
+    is unreliable on high-dimensional embeddings anyway. We skip it for
     large datasets and use a fast sample-based estimate for medium ones.
+
+    On high-dimensional input (>100d) DBCV's 1/distance^dim term overflows
+    to inf for small distances, producing noisy RuntimeWarnings and a
+    degraded score. We skip entirely above that threshold.
     """
+    import warnings
+
     non_outlier_mask = topics != -1
     unique_labels = set(topics[non_outlier_mask])
     if len(unique_labels) < 2:
@@ -138,6 +144,20 @@ def _safe_dbcv(topics: np.ndarray, embeddings: np.ndarray) -> float:
     if n_valid > 2000:
         return 0.0
 
+    # Skip when embedding dim > 100 — DBCV's 1/d^dim term overflows; use silhouette/cosine instead.
+    if embeddings.ndim == 2 and embeddings.shape[1] > 100:
+        return 0.0
+
+    def _call_validity(embs: np.ndarray, tps: np.ndarray) -> float:
+        # Silence DBCV's intrinsic numpy warnings (overflow / underflow / invalid)
+        # so the pipeline log stays clean. The function's own try/except handles
+        # actual failures.
+        with np.errstate(over="ignore", under="ignore", invalid="ignore"), \
+             warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            from hdbscan.validity import validity_index
+            return float(validity_index(embs.astype(np.float64), np.asarray(tps)))
+
     # Sample-based estimate for medium datasets (500-2000)
     if n_valid > 500:
         rng = np.random.RandomState(42)
@@ -148,20 +168,12 @@ def _safe_dbcv(topics: np.ndarray, embeddings: np.ndarray) -> float:
         if len(set(sample_topics)) < 2:
             return 0.0
         try:
-            from hdbscan.validity import validity_index
-            return float(validity_index(
-                sample_embs.astype(np.float64),
-                np.array(sample_topics),
-            ))
+            return _call_validity(sample_embs, sample_topics)
         except Exception:
             return 0.0
 
     try:
-        from hdbscan.validity import validity_index
-        return float(validity_index(
-            embeddings[non_outlier_mask].astype(np.float64),
-            np.array(topics[non_outlier_mask]),
-        ))
+        return _call_validity(embeddings[non_outlier_mask], topics[non_outlier_mask])
     except Exception:
         return 0.0
 
