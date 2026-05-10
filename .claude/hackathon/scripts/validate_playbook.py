@@ -706,6 +706,22 @@ def test_end_to_end_corpus_to_alignment():
     print("  [PASS] End-to-end corpus → mine → align integration")
 
 
+def test_gemini_backend_smoke():
+    """Live smoke: GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT set →
+    LLMClient(backend='gemini').complete('ping') returns non-empty text.
+    Skips cleanly if credentials are not configured."""
+    import os
+    if not (os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and os.getenv("GOOGLE_CLOUD_PROJECT")):
+        print("  [SKIP] GOOGLE_APPLICATION_CREDENTIALS / GOOGLE_CLOUD_PROJECT not set")
+        return
+    from core.llm_client import LLMClient
+    client = LLMClient(backend="gemini")
+    out = client.complete("Reply with exactly the word PONG and nothing else.",
+                           system="You are a concise echo bot.", max_tokens=10)
+    assert "PONG" in out.upper(), f"unexpected response: {out!r}"
+    print(f"  [PASS] Gemini smoke ({client.model}) -> {out.strip()[:40]!r}")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -731,6 +747,7 @@ CHECKS = [
     ("miner_outlier_candidates",       test_miner_outlier_candidates),
     ("miner_runner_aggregation",       test_miner_runner_aggregates_clustering_store),
     ("end_to_end_corpus_to_alignment", test_end_to_end_corpus_to_alignment),
+    ("gemini_backend_smoke",            test_gemini_backend_smoke),
 ]
 
 

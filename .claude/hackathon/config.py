@@ -20,12 +20,16 @@ SAMPLE_DIR = DATA_DIR / "sample_agreements"
 DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "evoc_200_refined.duckdb")))
 
 # ── LLM Configuration ─────────────────────────────────────────────────────────
-# Supports: "openai", "ollama", "litellm"
+# Supports: "openai", "ollama", "litellm", "gemini"
 LLM_BACKEND = os.getenv("LLM_BACKEND", "openai")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+
+# Gemini (Vertex AI) — requires GOOGLE_APPLICATION_CREDENTIALS pointing at a
+# service-account JSON, GOOGLE_CLOUD_PROJECT, and optionally GOOGLE_CLOUD_LOCATION.
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
 
 # ── Embedding Configuration ───────────────────────────────────────────────────
 # Legacy: AIFlow gRPC → all-MiniLM-L12-v3 (384-dim), cloud-hosted
