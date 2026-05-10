@@ -51,14 +51,16 @@ def render(store=None):  # noqa: ANN001 — store ignored; kept for app.py compa
     # ── Run alignment ──────────────────────────────────────────────────────
     if run_align and agreement_id:
         from core.playbooks.aligner import align
+        from core.store import ClusteringStore
+        from core.playbooks.integration import agreement_ctx
+        from config import DB_PATH
 
-        ctx = {
-            "agreement_id": agreement_id,
-            "fields": {},
-            "clauses": [],
-        }
         with st.spinner("Running alignment..."):
             try:
+                cs = ClusteringStore(DB_PATH)
+                ctx = agreement_ctx(cs, agreement_id)
+                if hasattr(cs, "close"):
+                    cs.close()
                 findings = align(ps, playbook_id, ctx)
             except Exception as exc:
                 st.error(f"Alignment error: {exc}")

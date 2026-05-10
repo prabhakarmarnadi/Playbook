@@ -455,6 +455,58 @@ def test_benchmark_migration():
     print("  [PASS] Benchmark migration")
 
 
+def test_agreement_ctx_recovers_field_names():
+    """integration helper joins extractions × field_definitions to expose human field names."""
+    import os
+    import tempfile
+    from core.store import ClusteringStore
+    from core.playbooks.integration import agreement_ctx
+
+    # Use mkstemp+unlink so DuckDB can create the file fresh (NamedTemporaryFile
+    # pre-creates an empty file that DuckDB rejects as "not a valid DuckDB database file").
+    fd, db_path = tempfile.mkstemp(suffix=".duckdb")
+    os.close(fd)
+    os.unlink(db_path)
+    try:
+        cs = ClusteringStore(db_path)
+        # Seed minimal fixture: domain → cluster → field → extraction → clause
+        cs.conn.execute("INSERT INTO domains (domain_id, label) VALUES ('d1', 'MSA')")
+        cs.conn.execute(
+            "INSERT INTO agreements (agreement_id, filename, domain_id) VALUES ('a1', '/x', 'd1')"
+        )
+        cs.conn.execute(
+            "INSERT INTO clusters (cluster_id, domain_id, label) VALUES ('c1', 'd1', 'Indemnification')"
+        )
+        cs.conn.execute(
+            "INSERT INTO field_definitions (field_id, cluster_id, name, field_type) VALUES (?, ?, ?, ?)",
+            ['f1', 'c1', 'liability_cap_amount', 'number']
+        )
+        cs.conn.execute(
+            "INSERT INTO extractions (extraction_id, agreement_id, field_id, value) VALUES (?, ?, ?, ?)",
+            ['e1', 'a1', 'f1', '250000']
+        )
+        cs.conn.execute(
+            "INSERT INTO clauses (clause_id, agreement_id, clause_type_id, full_text) VALUES (?, ?, ?, ?)",
+            ['cl1', 'a1', 'c1', 'Indemnification clause text...']
+        )
+
+        ctx = agreement_ctx(cs, 'a1')
+        assert ctx["agreement_id"] == "a1"
+        assert ctx["domain"] == {"id": "d1", "name": "MSA"}
+        assert "liability_cap_amount" in ctx["fields"], f"got {list(ctx['fields'].keys())}"
+        assert ctx["fields"]["liability_cap_amount"] == "250000"
+        assert len(ctx["clauses"]) == 1
+        assert ctx["clauses"][0]["cluster_id"] == "c1"
+        if hasattr(cs, "close"):
+            cs.close()
+    finally:
+        for ext in ("", ".wal"):
+            p = db_path + ext
+            if os.path.exists(p):
+                os.unlink(p)
+    print("  [PASS] agreement_ctx recovers field names")
+
+
 CHECKS = [
     ("package_importable",        test_package_importable),
     ("store_schema_idempotent",   test_store_schema_idempotent),
@@ -475,6 +527,7 @@ CHECKS = [
     ("aligner_unresolved_binding_is_na",     test_aligner_unresolved_binding_is_na),
     ("ui_modules_import",              test_ui_modules_import),
     ("benchmark_migration",            test_benchmark_migration),
+    ("agreement_ctx_recovers_field_names", test_agreement_ctx_recovers_field_names),
 ]
 
 

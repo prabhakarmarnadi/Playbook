@@ -2026,21 +2026,11 @@ if __name__ == "__main__":
     if args.playbook:
         from core.playbooks.store import PlaybookStore
         from core.playbooks.aligner import align
-        from core.store import ClusteringStore
+        from core.playbooks.integration import agreement_ctx
         pb = PlaybookStore(_db_path)
-        _cl_store = ClusteringStore(_db_path)
         all_findings = []
-        for ag in _cl_store.get_agreements():
-            extractions = _cl_store.get_extractions(agreement_id=ag["agreement_id"])
-            fields = {e.get("field_name") or e.get("field_id"): e.get("value")
-                      for e in extractions}
-            clauses_rows = _cl_store.get_clauses(agreement_id=ag["agreement_id"])
-            clauses = [{"id": c.get("clause_id"),
-                        "label": c.get("clause_type") or c.get("clause_type_id"),
-                        "text": c.get("text")} for c in clauses_rows]
-            ctx = {"agreement_id": ag["agreement_id"],
-                   "fields": fields, "clauses": clauses}
+        for ag in store.get_agreements():
+            ctx = agreement_ctx(store, ag["agreement_id"])
             all_findings.extend(align(pb, args.playbook, ctx))
-        _cl_store.close()
         pb.close()
         logger.info(f"Playbook alignment: {len(all_findings)} findings")
