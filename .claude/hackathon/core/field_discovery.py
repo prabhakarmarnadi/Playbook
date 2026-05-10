@@ -67,27 +67,15 @@ class FieldDiscoveryConfig:
 
 
 def _get_azure_client():
-    """Create Azure OpenAI client from env vars."""
-    try:
-        from openai import AzureOpenAI
-    except ImportError:
-        raise ImportError("openai package required: pip install openai")
+    """Return a chat-completions-compatible client for the configured LLM backend.
 
-    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-    api_key = os.getenv("AZURE_OPENAI_API_KEY", "")
-    api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-
-    if not endpoint or not api_key:
-        raise ValueError(
-            "Set AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_API_KEY env vars. "
-            "Example: export AZURE_OPENAI_ENDPOINT='https://myorg.openai.azure.com/'"
-        )
-
-    return AzureOpenAI(
-        azure_endpoint=endpoint,
-        api_key=api_key,
-        api_version=api_version,
-    )
+    Honors AZURE_OPENAI_*, OPENAI_API_KEY, GEMINI/Vertex (LLM_BACKEND=gemini), and
+    Ollama/LiteLLM. The returned object has the OpenAI SDK shape — i.e. a
+    `.chat.completions.create(...)` method that returns a response with
+    `.choices[0].message.content`. Existing call sites in this module need no edits.
+    """
+    from core.llm_client import make_openai_compatible_client
+    return make_openai_compatible_client()
 
 
 def _get_deployment(config: FieldDiscoveryConfig) -> str:

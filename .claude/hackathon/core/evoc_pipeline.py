@@ -1634,12 +1634,14 @@ def run_evoc_pipeline(
         progress("arm", "Skipped (ENABLE_ARM_ENRICHMENT=false)")
 
     # ══════════════════════════════════════════════════════════════════════
-    # Stage 5: Field Discovery (Azure OpenAI)
+    # Stage 5: Field Discovery (any configured LLM backend)
     # ══════════════════════════════════════════════════════════════════════
+    from core.llm_client import llm_configured
+    _backend = os.getenv("LLM_BACKEND", "openai")
     field_discovery_result = {"total_fields": 0, "total_extractions": 0}
-    if os.getenv("AZURE_OPENAI_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"):
+    if llm_configured():
         stage_start("field_discovery")
-        progress("field_discovery", "Discovering fields via Azure OpenAI...")
+        progress("field_discovery", f"Discovering fields via LLM backend={_backend}...")
         try:
             from core.field_discovery import run_field_discovery, FieldDiscoveryConfig
             fd_config = FieldDiscoveryConfig(
@@ -1667,15 +1669,17 @@ def run_evoc_pipeline(
         except Exception as e:
             logger.warning(f"Field dedup failed (non-fatal): {e}")
     else:
-        progress("field_discovery", "Skipped (AZURE_OPENAI_ENDPOINT / AZURE_OPENAI_API_KEY not set)")
+        progress("field_discovery",
+                 "Skipped (no LLM backend configured — set AZURE_OPENAI_*, OPENAI_API_KEY, "
+                 "or LLM_BACKEND=gemini with GOOGLE_APPLICATION_CREDENTIALS+GOOGLE_CLOUD_PROJECT)")
 
     # ══════════════════════════════════════════════════════════════════════
-    # Stage 6: Intent Extraction (Azure OpenAI)
+    # Stage 6: Intent Extraction (any configured LLM backend)
     # ══════════════════════════════════════════════════════════════════════
     intent_result = {"total_extracted": 0, "total_failed": 0}
-    if os.getenv("AZURE_OPENAI_ENDPOINT") and os.getenv("AZURE_OPENAI_API_KEY"):
+    if llm_configured():
         stage_start("intent")
-        progress("intent", "Extracting clause intents via Azure OpenAI...")
+        progress("intent", f"Extracting clause intents via LLM backend={_backend}...")
         try:
             from core.intent_extractor import run_intent_extraction, IntentExtractionConfig
             intent_config = IntentExtractionConfig(
@@ -1690,7 +1694,8 @@ def run_evoc_pipeline(
             progress("intent", f"Failed: {e}")
         stage_end("intent")
     else:
-        progress("intent", "Skipped (AZURE_OPENAI_ENDPOINT / AZURE_OPENAI_API_KEY not set)")
+        progress("intent",
+                 "Skipped (no LLM backend configured — see field_discovery message)")
 
     store.update_run(run_id, "completed", "completed")
 

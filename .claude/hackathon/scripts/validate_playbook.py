@@ -737,6 +737,43 @@ def test_macro_label_parallelism():
     print(f"  [PASS] Macro label parallelism ({n_topics} topics in {elapsed:.2f}s, sequential would be {n_topics*0.3:.1f}s)")
 
 
+def test_gemini_openai_compat_shim():
+    """Live: make_openai_compatible_client() returns a chat-completions client
+    that works for Gemini exactly like AzureOpenAI for field_discovery callers."""
+    import os
+    if not (os.getenv("GOOGLE_APPLICATION_CREDENTIALS") and os.getenv("GOOGLE_CLOUD_PROJECT")):
+        print("  [SKIP] Gemini creds not set"); return
+    # Force the gemini path: clear AZURE_* in case anything stray is set
+    saved = (os.environ.pop("AZURE_OPENAI_ENDPOINT", None),
+              os.environ.pop("AZURE_OPENAI_API_KEY", None))
+    os.environ["LLM_BACKEND"] = "gemini"
+    try:
+        from core.llm_client import make_openai_compatible_client
+        client = make_openai_compatible_client()
+        resp = client.chat.completions.create(
+            model="ignored-for-gemini",
+            messages=[
+                {"role": "system", "content": "You reply with JSON only."},
+                {"role": "user", "content": 'Output exactly this JSON and nothing else: {"v": 42}'},
+            ],
+            response_format={"type": "json_object"},
+            max_completion_tokens=200,
+            temperature=0.0,
+        )
+        text = resp.choices[0].message.content
+        import json as _json
+        try:
+            data = _json.loads(text)
+        except Exception:
+            data = {"v": None, "_raw": text[:80]}
+        assert data.get("v") == 42, f"shim chat.completions.create failed; got {data!r}"
+        print(f"  [PASS] Gemini OpenAI-compat shim returned {data}")
+    finally:
+        # Restore env so subsequent tests aren't affected
+        if saved[0] is not None: os.environ["AZURE_OPENAI_ENDPOINT"] = saved[0]
+        if saved[1] is not None: os.environ["AZURE_OPENAI_API_KEY"] = saved[1]
+
+
 def test_gemini_backend_smoke():
     """Live smoke: GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT set →
     LLMClient(backend='gemini').complete('ping') returns non-empty text.
@@ -779,6 +816,7 @@ CHECKS = [
     ("miner_runner_aggregation",       test_miner_runner_aggregates_clustering_store),
     ("end_to_end_corpus_to_alignment", test_end_to_end_corpus_to_alignment),
     ("macro_label_parallelism",        test_macro_label_parallelism),
+    ("gemini_openai_compat_shim",       test_gemini_openai_compat_shim),
     ("gemini_backend_smoke",            test_gemini_backend_smoke),
 ]
 

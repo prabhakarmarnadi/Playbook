@@ -88,13 +88,13 @@ Respond with ONLY a JSON object:
 
 
 def _get_azure_client():
-    """Create Azure OpenAI client from env vars."""
-    from openai import AzureOpenAI
-    return AzureOpenAI(
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
-        api_key=os.getenv("AZURE_OPENAI_API_KEY", ""),
-        api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
-    )
+    """Return a chat-completions-compatible client for the configured LLM backend.
+
+    Honors AZURE_OPENAI_*, OPENAI_API_KEY, GEMINI (Vertex), Ollama, LiteLLM. The
+    returned object exposes the OpenAI SDK's `.chat.completions.create(...)` shape
+    so existing call sites need no changes."""
+    from core.llm_client import make_openai_compatible_client
+    return make_openai_compatible_client()
 
 
 def _get_deployment(config: IntentExtractionConfig) -> str:
