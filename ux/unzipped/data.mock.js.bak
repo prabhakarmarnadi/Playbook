@@ -1,0 +1,366 @@
+/* Playbook Intelligence — mock corpus.
+   ~120 Consulting Agreements processed; 8 clusters, 23 fields,
+   11 mined rule drafts, 6 active rules, 1 contract under alignment,
+   24 contracts in the portfolio for the heatmap. */
+
+window.CORPUS_META = {
+  playbook_id: "pb_consulting_2026q2",
+  playbook_label: "Consulting Agreement — Standard",
+  domain: "Consulting",
+  agreement_count: 124,
+  mined_at: "2026-05-09T14:22:00Z",
+  drafts_pending: 7,
+  rules_active: 6,
+  rules_retired: 2,
+};
+
+window.CLUSTERS = [
+  { id: "ct_618ea282", label: "Confidentiality",     chunk_count: 119, quality: 0.93 },
+  { id: "ct_e0bcad7d", label: "Arbitration",         chunk_count: 108, quality: 0.94 },
+  { id: "ct_4dba6dc2", label: "Governing Law",       chunk_count: 121, quality: 0.90 },
+  { id: "ct_83f4481a", label: "Indemnification",     chunk_count:  96, quality: 0.93 },
+  { id: "ct_750e0fd2", label: "Compensation",        chunk_count: 114, quality: 0.92 },
+  { id: "ct_0a8f09b8", label: "Payment Terms",       chunk_count: 110, quality: 0.95 },
+  { id: "ct_d67c78db", label: "Term",                chunk_count: 124, quality: 0.92 },
+  { id: "ct_ff4565a9", label: "Compliance",          chunk_count:  88, quality: 0.91 },
+];
+
+/* Mined rule drafts (status: draft) and active rules.
+   Each carries provenance, predicate, severity, examples — everything
+   a rule card needs to render. */
+window.RULES = [
+  {
+    id: "r_001",
+    title: "ALL DOCUMENTS must contain a Confidentiality clause",
+    description: "Coverage rule mined from corpus statistics.",
+    applies_to: "domain",
+    cluster_label: "Confidentiality",
+    cluster_id: "ct_618ea282",
+    predicate: { op: "any_of", args: [{ op: "clause.classified_as", args: ["Confidentiality"] }] },
+    severity: "warn",
+    answer_type: "presence",
+    escalation_owner: "Commercial Legal",
+    status: "draft",
+    confidence: 1.0,
+    source: { miner: "coverage", ratio: 0.96, n: 119, total: 124 },
+    examples: {
+      pass: [
+        { agreement: "agr_412c", snippet: "Consultant shall hold in strict confidence all Confidential Information disclosed by the Company…" },
+        { agreement: "agr_88a1", snippet: "All non-public information, whether oral or written, shall be deemed Confidential Information…" },
+        { agreement: "agr_5e2f", snippet: "The receiving Party agrees not to disclose any Confidential Information for a period of five (5) years…" },
+      ],
+      fail: [
+        { agreement: "agr_7711", snippet: "(no Confidentiality clause detected — agreement classified as expense-reimbursement only)" },
+      ],
+    },
+    preferred_language: "Consultant shall hold in strict confidence all Confidential Information of the Company for a period of five (5) years following termination of this Agreement, and shall not disclose, use, or permit the use of such information except as expressly authorized in writing.",
+    rationale: "96% corpus coverage. Confidentiality is foundational for consulting engagements; absence is treated as a warn so the reviewer can confirm intent.",
+    lift: 1.18, support: 0.96,
+  },
+  {
+    id: "r_002",
+    title: "Notice period must be between 10 and 30 days",
+    description: "Distribution rule on `notice_period_days` (p10..p90).",
+    applies_to: "field",
+    field: "notice_period_days",
+    cluster_label: "Term",
+    cluster_id: "ct_d67c78db",
+    predicate: { op: "field.between", args: ["notice_period_days", 10, 30] },
+    severity: "info",
+    answer_type: "numeric_range",
+    escalation_owner: "Deal Desk",
+    status: "draft",
+    confidence: 0.94,
+    source: { miner: "distribution", median: 15, p10: 10, p25: 14, p75: 30, p90: 30, n: 102, outliers: 4 },
+    examples: {
+      pass: [
+        { agreement: "agr_412c", snippet: "…upon thirty (30) days prior written notice…", value: "30" },
+        { agreement: "agr_88a1", snippet: "…either party may terminate upon fifteen (15) days written notice…", value: "15" },
+        { agreement: "agr_5e2f", snippet: "…ten (10) business days' notice to the other Party…", value: "10" },
+      ],
+      fail: [
+        { agreement: "agr_2c19", snippet: "…ninety (90) days prior written notice…", value: "90" },
+        { agreement: "agr_4d80", snippet: "…immediately upon notice…", value: "0" },
+      ],
+    },
+    preferred_language: "Either Party may terminate this Agreement upon thirty (30) days prior written notice to the other Party.",
+    rationale: "98% of contracts cluster between 10–30 days; tails are 7d (one outlier) and 90d (three outliers). Severity is info because variance is commercially negotiable.",
+    lift: 2.4, support: 0.82,
+  },
+  {
+    id: "r_003",
+    title: "Governing law is typically Delaware",
+    description: "Categorical rule on `governing_law`.",
+    applies_to: "field",
+    field: "governing_law",
+    cluster_label: "Governing Law",
+    cluster_id: "ct_4dba6dc2",
+    predicate: { op: "field.eq", args: ["governing_law", "Delaware"] },
+    severity: "info",
+    answer_type: "enum",
+    escalation_owner: "Commercial Legal",
+    status: "draft",
+    confidence: 0.86,
+    source: { miner: "categorical", mode: "Delaware", frequency: 0.72, n: 121, distribution: { Delaware: 87, California: 14, "New York": 11, Texas: 6, Other: 3 } },
+    examples: {
+      pass: [
+        { agreement: "agr_412c", snippet: "This Agreement shall be governed by the laws of the State of Delaware…", value: "Delaware" },
+        { agreement: "agr_88a1", snippet: "…construed in accordance with the laws of Delaware, without regard to conflicts of law…", value: "Delaware" },
+        { agreement: "agr_5e2f", snippet: "Delaware law shall govern all matters arising under this Agreement.", value: "Delaware" },
+      ],
+      fail: [
+        { agreement: "agr_2c19", snippet: "…the laws of the State of California…", value: "California" },
+        { agreement: "agr_99f1", snippet: "This Agreement is governed by the laws of New York.", value: "New York" },
+      ],
+    },
+    preferred_language: "This Agreement shall be governed by, and construed in accordance with, the laws of the State of Delaware, without giving effect to any conflict-of-laws provisions.",
+    rationale: "Mode = Delaware at 72%, just above the 0.70 categorical threshold. California is the most common alternative; flag NY/TX for review.",
+    lift: 3.6, support: 0.72,
+  },
+  {
+    id: "r_004",
+    title: "Indemnification must include defense obligation",
+    description: "Composite rule on Indemnification clause structure.",
+    applies_to: "composite",
+    cluster_label: "Indemnification",
+    cluster_id: "ct_83f4481a",
+    predicate: { op: "and", args: [
+      { op: "clause.classified_as", args: ["Indemnification"] },
+      { op: "field.eq", args: ["defense_obligation", "true"] },
+    ] },
+    severity: "approval_required",
+    answer_type: "yes_no",
+    escalation_owner: "Senior Counsel",
+    status: "draft",
+    confidence: 0.91,
+    source: { miner: "contrastive", cluster_lift: 2.8, global_lift: 1.2, lift_ratio: 2.33, n: 96 },
+    examples: {
+      pass: [
+        { agreement: "agr_412c", snippet: "Consultant shall defend, indemnify, and hold the Company harmless from and against any and all claims…" },
+        { agreement: "agr_88a1", snippet: "…the indemnifying Party shall assume the defense of any such claim with counsel reasonably acceptable to the indemnified Party." },
+        { agreement: "agr_5e2f", snippet: "…shall defend and indemnify against losses arising out of Consultant's gross negligence or willful misconduct." },
+      ],
+      fail: [
+        { agreement: "agr_2c19", snippet: "Consultant agrees to indemnify the Company. (no defense obligation)" },
+        { agreement: "agr_99f1", snippet: "…reimbursement of legal fees only, no defense undertaking." },
+      ],
+    },
+    preferred_language: "Consultant shall defend, indemnify, and hold harmless the Company, its affiliates, and their respective officers, directors, employees, and agents from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys' fees) arising out of or related to Consultant's performance of the Services.",
+    rationale: "78% of corpus pairs Indemnification with an explicit defense obligation; the 22% without it consistently created downstream renegotiation. Approval-required severity reflects business impact.",
+    lift: 4.1, support: 0.78,
+  },
+  {
+    id: "r_005",
+    title: "If governing_law = NY then arbitration_venue must be NY",
+    description: "Cross-field consistency rule.",
+    applies_to: "cross_field",
+    cluster_label: "Arbitration",
+    cluster_id: "ct_e0bcad7d",
+    predicate: { op: "if_then", args: [
+      { op: "field.eq", args: ["governing_law", "New York"] },
+      { op: "field.eq", args: ["arbitration_venue", "New York"] },
+    ] },
+    severity: "warn",
+    answer_type: "yes_no",
+    escalation_owner: "Commercial Legal",
+    status: "draft",
+    confidence: 0.83,
+    source: { miner: "contrastive", cluster_lift: 5.2, global_lift: 1.8, lift_ratio: 2.89, n: 11 },
+    examples: {
+      pass: [
+        { agreement: "agr_99f1", snippet: "…governed by the laws of New York… arbitration shall take place in New York County, NY.", value: "NY/NY" },
+        { agreement: "agr_44b2", snippet: "New York law; arbitration in Manhattan under JAMS rules.", value: "NY/NY" },
+      ],
+      fail: [
+        { agreement: "agr_07ab", snippet: "Governed by New York law; arbitration venue shall be San Francisco, CA.", value: "NY/CA" },
+      ],
+    },
+    preferred_language: "Any dispute arising under this Agreement shall be resolved by binding arbitration in New York County, New York, under the rules of JAMS, with one (1) arbitrator.",
+    rationale: "Mixed-venue agreements created enforcement complications in 3 of 4 corpus instances. Low n (only 11 NY contracts) — confidence reflects this.",
+    lift: 5.2, support: 0.27,
+  },
+  {
+    id: "r_006",
+    title: "Consultant fee should fall within typical corpus range",
+    description: "Outlier rule on `consulting_fee` (monetary).",
+    applies_to: "field",
+    field: "consulting_fee",
+    cluster_label: "Compensation",
+    cluster_id: "ct_750e0fd2",
+    predicate: { op: "field.between", args: ["consulting_fee", 1500, 25000] },
+    severity: "info",
+    answer_type: "numeric_range",
+    escalation_owner: "Deal Desk",
+    status: "draft",
+    confidence: 0.71,
+    source: { miner: "outlier", outlier_pct: 0.18, p10: 1500, p25: 3000, median: 8500, p75: 18000, p90: 25000, n: 96 },
+    examples: {
+      pass: [
+        { agreement: "agr_412c", snippet: "…a fee of eight thousand five hundred dollars ($8,500) per month…", value: "$8,500" },
+        { agreement: "agr_88a1", snippet: "$18,000 monthly retainer.", value: "$18,000" },
+      ],
+      fail: [
+        { agreement: "agr_2c19", snippet: "$200,000 fixed fee", value: "$200,000" },
+        { agreement: "agr_4d80", snippet: "$450 one-time payment", value: "$450" },
+      ],
+    },
+    preferred_language: null,
+    rationale: "Wide variance reflects real engagement diversity. Surfaced as info to flag extreme outliers for sanity-check, not block.",
+    lift: 1.6, support: 0.82,
+  },
+  {
+    id: "r_007",
+    title: "Non-compete clauses are unenforceable in California",
+    description: "Jurisdictional prohibition (migrated from legacy benchmarks).",
+    applies_to: "composite",
+    cluster_label: "Compliance",
+    cluster_id: "ct_ff4565a9",
+    predicate: { op: "if_then", args: [
+      { op: "field.eq", args: ["governing_law", "California"] },
+      { op: "not", args: [{ op: "clause.classified_as", args: ["Non-Compete"] }] },
+    ] },
+    severity: "blocker",
+    answer_type: "yes_no",
+    escalation_owner: "Senior Counsel",
+    status: "draft",
+    confidence: 1.0,
+    source: { migrated_from: "playbook_benchmarks", migrated_at: "2026-04-12" },
+    examples: {
+      pass: [
+        { agreement: "agr_2c19", snippet: "(no non-compete provision; CA governing law)" },
+      ],
+      fail: [
+        { agreement: "agr_3d77", snippet: "Consultant agrees not to compete with the Company for two (2) years following termination. Governing law: California.", value: "Non-compete present + CA" },
+      ],
+    },
+    preferred_language: null,
+    walkaway_language: "Any non-compete provision broader than the protection of trade secrets is void and unenforceable as a matter of California public policy.",
+    rationale: "Legacy benchmark migrated from prior playbook. Cal. Bus. & Prof. Code §16600. Severity = blocker.",
+    lift: null, support: null,
+  },
+];
+
+/* ------ The contract currently under alignment (Page 4) ------ */
+window.ACTIVE_CONTRACT = {
+  id: "agr_inbound_42",
+  name: "Acme × Northwind Consulting Agreement",
+  counterparty: "Northwind Logistics, Inc.",
+  uploaded_at: "2026-05-10T09:14:00Z",
+  pages: 12,
+  word_count: 4280,
+  governing_law: "California",
+  aligned_at: "2026-05-11T10:02:00Z",
+  duration_ms: 28400,
+};
+
+/* Findings the active contract produced against the active rules. */
+window.FINDINGS = [
+  {
+    id: "f_001", rule_id: "r_007", severity: "blocker", status: "open",
+    title: "Non-compete present under California governing law",
+    rule_title: "Non-compete clauses are unenforceable in California",
+    clause_label: "Non-Compete",
+    location: { page: 8, section: "§9.2", line: 412 },
+    evidence: "Consultant agrees not to engage in any business that competes with the Company within North America for a period of two (2) years following termination.",
+    suggestion: "Strike §9.2 in full, or narrow to a Customer/Employee Non-Solicit limited to twelve (12) months protecting only trade secrets.",
+    preferred_language: "Consultant agrees that during the Term and for twelve (12) months thereafter, Consultant shall not directly solicit any employee of the Company with whom Consultant had material contact during the engagement.",
+    escalation_owner: "Senior Counsel",
+  },
+  {
+    id: "f_002", rule_id: "r_002", severity: "approval_required", status: "open",
+    title: "Notice period of 7 days is below corpus floor of 10",
+    rule_title: "Notice period must be between 10 and 30 days",
+    clause_label: "Term",
+    location: { page: 11, section: "§12.1", line: 612 },
+    evidence: "Either Party may terminate this Agreement upon seven (7) days' written notice to the other Party.",
+    suggestion: "Increase notice period to ten (10) days (corpus p10) or thirty (30) days (corpus median).",
+    preferred_language: "Either Party may terminate this Agreement upon thirty (30) days prior written notice to the other Party.",
+    escalation_owner: "Deal Desk",
+  },
+  {
+    id: "f_003", rule_id: "r_004", severity: "approval_required", status: "open",
+    title: "Indemnification lacks defense obligation",
+    rule_title: "Indemnification must include defense obligation",
+    clause_label: "Indemnification",
+    location: { page: 6, section: "§7", line: 298 },
+    evidence: "Consultant agrees to indemnify the Company for losses arising out of Consultant's gross negligence.",
+    suggestion: "Add an explicit defense undertaking with counsel reasonably acceptable to the indemnified Party.",
+    preferred_language: "Consultant shall defend, indemnify, and hold harmless the Company, its affiliates, and their respective officers, directors, employees, and agents from and against any and all claims, damages, losses, liabilities, costs, and expenses (including reasonable attorneys' fees) arising out of or related to Consultant's performance of the Services.",
+    escalation_owner: "Senior Counsel",
+  },
+  {
+    id: "f_004", rule_id: "r_003", severity: "warn", status: "open",
+    title: "Governing law is California (corpus mode: Delaware)",
+    rule_title: "Governing law is typically Delaware",
+    clause_label: "Governing Law",
+    location: { page: 11, section: "§12.4", line: 638 },
+    evidence: "This Agreement shall be governed by, and construed in accordance with, the laws of the State of California.",
+    suggestion: "Confirm CA governing law is intentional; consider Delaware (corpus mode 72%).",
+    preferred_language: null,
+    escalation_owner: "Commercial Legal",
+  },
+  {
+    id: "f_005", rule_id: "r_001", severity: "info", status: "pass",
+    title: "Confidentiality clause present",
+    rule_title: "ALL DOCUMENTS must contain a Confidentiality clause",
+    clause_label: "Confidentiality",
+    location: { page: 4, section: "§5", line: 188 },
+    evidence: "Consultant shall hold in strict confidence all Confidential Information…",
+    suggestion: null,
+    preferred_language: null,
+    escalation_owner: null,
+  },
+  {
+    id: "f_006", rule_id: "r_006", severity: "info", status: "pass",
+    title: "Consulting fee $12,000/mo within corpus range",
+    rule_title: "Consultant fee should fall within typical corpus range",
+    clause_label: "Compensation",
+    location: { page: 3, section: "§4.1", line: 142 },
+    evidence: "Consultant shall be paid a monthly retainer of twelve thousand dollars ($12,000).",
+    suggestion: null,
+    preferred_language: null,
+    escalation_owner: null,
+  },
+];
+
+/* ------ Portfolio: 24 contracts × 7 rules — heatmap. ------ */
+window.PORTFOLIO = (function () {
+  const ids = [
+    "agr_inbound_42","agr_412c","agr_88a1","agr_5e2f","agr_2c19","agr_4d80","agr_99f1","agr_44b2",
+    "agr_07ab","agr_3d77","agr_7711","agr_a012","agr_b1c2","agr_c2d3","agr_d3e4","agr_e4f5",
+    "agr_f506","agr_0617","agr_1728","agr_2839","agr_394a","agr_4a5b","agr_5b6c","agr_6c7d",
+  ];
+  const names = [
+    "Northwind","Globex","Soylent","Initech","Umbrella","Hooli","Pied Piper","Stark",
+    "Wayne Ent.","Cyberdyne","Wonka","Acme Corp","Vandelay","Dunder","Sterling C.","Tyrell",
+    "Aperture","Massive Dyn.","BluthCo","Hammer Ind.","Oscorp","LexCorp","Wayne Tech","Gringotts",
+  ];
+  const rules = ["r_001","r_002","r_003","r_004","r_005","r_006","r_007"];
+  const sevs = ["pass","info","warn","approval_required","blocker"];
+  function rng(seed) { let x = seed; return () => { x = (x * 9301 + 49297) % 233280; return x / 233280; }; }
+  const r = rng(7);
+  return ids.map((id, i) => {
+    const cells = rules.map(rid => {
+      const v = r();
+      let s;
+      if (id === "agr_inbound_42") {
+        s = ({ r_001: "pass", r_002: "approval_required", r_003: "warn", r_004: "approval_required", r_005: "pass", r_006: "pass", r_007: "blocker" })[rid];
+      } else if (v < 0.55) s = "pass";
+      else if (v < 0.75) s = "info";
+      else if (v < 0.88) s = "warn";
+      else if (v < 0.97) s = "approval_required";
+      else s = "blocker";
+      return { rule_id: rid, severity: s };
+    });
+    return { id, name: names[i], cells };
+  });
+})();
+
+window.SEV = {
+  blocker:            { label: "Blocker",            color: "var(--status-error-500)", bg: "var(--status-error-50)",  fg: "var(--status-error-700)",  rank: 0, glyph: "x" },
+  approval_required:  { label: "Approval required",  color: "#c97c1d",                  bg: "#fbf0dc",                  fg: "#7f4c0e",                  rank: 1, glyph: "alert" },
+  warn:               { label: "Warn",               color: "var(--status-warn-500)",   bg: "var(--status-warn-50)",    fg: "var(--status-warn-700)",   rank: 2, glyph: "tri" },
+  info:               { label: "Info",               color: "var(--status-info-500)",   bg: "var(--status-info-50)",    fg: "var(--status-info-700)",   rank: 3, glyph: "i" },
+  pass:               { label: "Pass",               color: "var(--status-ok-500)",     bg: "var(--status-ok-50)",      fg: "var(--status-ok-700)",     rank: 4, glyph: "ok" },
+  na:                 { label: "N/A",                color: "var(--ink-400)",           bg: "var(--paper-2)",           fg: "var(--ink-600)",           rank: 5, glyph: "·" },
+};

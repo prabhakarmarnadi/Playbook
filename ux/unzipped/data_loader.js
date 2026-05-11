@@ -1,23 +1,18 @@
 /* Live data bridge for the Playbook Intelligence UX.
  *
- * On page load, fetch from the FastAPI server at /api/ui/* and overwrite
- * the mock window.* globals defined in data.js. Falls back silently to the
- * mock data if any fetch fails (e.g. when opening the HTML file directly
- * from disk).
+ * On page load, fetch from the FastAPI server at /api/ui/* and populate the
+ * (empty) window.* globals declared in data.js. There is no mock fallback —
+ * if a required endpoint fails, we render a hard-error overlay and refuse to
+ * mount React.
  *
- * Loaded AFTER data.js so the mock data is the baseline. We swap fields
- * with live values when the API responses arrive.
- *
- * The HTML uses an async gate (window.__PLAYBOOK_READY) so React waits
- * for live data before mounting. If the API is unreachable, the gate
- * resolves immediately with the mocks.
+ * Override the API base via ?api=http://localhost:8090 for cross-origin dev.
+ * The HTML mount waits on window.__PLAYBOOK_READY; that promise resolves
+ * after success or after rendering the error overlay.
  */
 (function () {
   "use strict";
 
   const API_BASE = (function () {
-    // Same-origin when served from /ui/ on FastAPI. Allow override via
-    // ?api=http://localhost:8000 for cross-origin dev.
     const params = new URLSearchParams(window.location.search);
     return params.get("api") || "";
   })();
@@ -26,24 +21,19 @@
     return (API_BASE || "") + path;
   }
 
-  async function tryFetch(path, label) {
+  async function mustFetch(path, label) {
+    let r;
     try {
-      const r = await fetch(url(path), {
-        headers: { Accept: "application/json" },
-      });
-      if (!r.ok) {
-        console.warn(`[data_loader] ${label}: HTTP ${r.status}`);
-        return null;
-      }
-      return await r.json();
+      r = await fetch(url(path), { headers: { Accept: "application/json" } });
     } catch (e) {
-      console.warn(`[data_loader] ${label}: ${e.message}`);
-      return null;
+      throw new Error(`${label}: network error — ${e.message}`);
     }
+    if (!r.ok) {
+      throw new Error(`${label}: HTTP ${r.status} ${r.statusText}`);
+    }
+    return await r.json();
   }
 
-  // Severity palette — overwrite SEV's rank/glyph/label from server but keep
-  // the CSS variable references local to data.js. Don't replace the whole obj.
   function mergeSeverities(serverSev) {
     if (!serverSev || typeof window.SEV !== "object") return;
     Object.keys(serverSev).forEach((k) => {
@@ -56,26 +46,16 @@
   }
 
   function applyMeta(meta) {
-    if (!meta || !meta.playbook_id) return;
     Object.assign(window.CORPUS_META, meta);
   }
 
   function applyClusters(payload) {
-    if (
-      !payload ||
-      !Array.isArray(payload.clusters) ||
-      payload.clusters.length === 0
-    )
-      return;
-    window.CLUSTERS = payload.clusters;
+    window.CLUSTERS = (payload && payload.clusters) || [];
   }
 
   function applyRules(payload) {
-    if (!payload || !Array.isArray(payload.rules) || payload.rules.length === 0)
-      return;
-    // The UX rule cards need at least one element with .id. Live data
-    // satisfies that — replace wholesale.
-    window.RULES = payload.rules.map((r) => ({
+    const arr = (payload && payload.rules) || [];
+    window.RULES = arr.map((r) => ({
       id: r.id,
       title: r.title,
       description: r.description || "",
@@ -103,98 +83,146 @@
   }
 
   function applyContract(c) {
-    if (!c || !c.id) return;
-    Object.assign(window.ACTIVE_CONTRACT, c);
+    if (c && c.id) {
+      Object.assign(window.ACTIVE_CONTRACT, c);
+    }
   }
 
   function applyFindings(payload) {
-    if (
-      !payload ||
-      !Array.isArray(payload.findings) ||
-      payload.findings.length === 0
-    )
-      return;
-    window.FINDINGS = payload.findings;
+    window.FINDINGS = (payload && payload.findings) || [];
   }
 
   function applyPortfolio(payload) {
-    if (
-      !payload ||
-      !Array.isArray(payload.portfolio) ||
-      payload.portfolio.length === 0
-    )
-      return;
-    window.PORTFOLIO = payload.portfolio;
+    window.PORTFOLIO = (payload && payload.portfolio) || [];
+  }
+
+  function renderError(message, details) {
+    const root = document.getElementById("root");
+    if (!root) return;
+    root.innerHTML = `
+      <div style="
+        position:fixed; inset:0;
+        display:flex; align-items:center; justify-content:center;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        background: var(--paper-1, #fafaf7);
+      ">
+        <div style="
+          max-width: 640px; padding: 32px 36px;
+          background: white; border: 1px solid #e6e6e1; border-radius: 12px;
+          box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        ">
+          <div style="font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+                       color: #c97c1d; margin-bottom: 12px;">
+            Backend unreachable
+          </div>
+          <div style="font-size: 22px; font-weight: 600; color: #1c1c1a; line-height: 1.2; margin-bottom: 12px;">
+            Playbook Intelligence can't reach its data API.
+          </div>
+          <div style="font-size: 14px; color: #4a4a45; line-height: 1.55; margin-bottom: 18px;">
+            ${message}
+          </div>
+          <pre style="
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px; background: #fbfbf7; border: 1px solid #ececea;
+            border-radius: 6px; padding: 12px; margin: 0 0 20px 0;
+            white-space: pre-wrap; word-break: break-word; color: #6b6b65;
+          ">${details}</pre>
+          <div style="font-size: 13px; color: #6b6b65; line-height: 1.55;">
+            Boot the FastAPI server with this DuckDB and retry:
+            <pre style="
+              font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+              font-size: 12px; background: #fbfbf7; border: 1px solid #ececea;
+              border-radius: 6px; padding: 12px; margin: 8px 0 0 0;
+              white-space: pre-wrap; word-break: break-word; color: #1c1c1a;
+            ">cd .claude/hackathon
+DB_PATH=data/demo.duckdb \\
+  .venv_playbooks/bin/python -m uvicorn api_server:app \\
+  --host 0.0.0.0 --port 8090</pre>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   async function loadAll() {
-    // Severity palette first — UI cards rely on SEV being populated.
-    const sev = await tryFetch("/api/ui/severity_palette", "severity_palette");
+    // 1. Severity palette (cheap, lets us check API liveness)
+    const sev = await mustFetch("/api/ui/severity_palette", "severity_palette");
     mergeSeverities(sev);
 
-    // Corpus meta drives the top bar AND picks which playbook id to use.
-    const meta = await tryFetch("/api/ui/corpus_meta", "corpus_meta");
-    applyMeta(meta);
-    const playbookId = meta && meta.playbook_id;
-
-    const clustersP = tryFetch("/api/ui/clusters", "clusters");
-    const rulesP = tryFetch(
-      "/api/ui/rules" +
-        (playbookId ? `?playbook_id=${encodeURIComponent(playbookId)}` : ""),
-      "rules",
-    );
-    const portfolioP = tryFetch(
-      "/api/ui/portfolio?limit=24" +
-        (playbookId ? `&playbook_id=${encodeURIComponent(playbookId)}` : ""),
-      "portfolio",
-    );
-
-    // ACTIVE_CONTRACT: try the first agreement from the portfolio first; falls
-    // back to ACTIVE_CONTRACT mock id if portfolio is empty.
-    const portfolio = await portfolioP;
-    applyPortfolio(portfolio);
-    let firstAgreementId = window.ACTIVE_CONTRACT && window.ACTIVE_CONTRACT.id;
-    if (portfolio && portfolio.portfolio && portfolio.portfolio[0]) {
-      firstAgreementId = portfolio.portfolio[0].id;
+    // 2. Corpus meta — drives top bar AND picks playbook_id for downstream
+    const meta = await mustFetch("/api/ui/corpus_meta", "corpus_meta");
+    if (!meta.playbook_id) {
+      throw new Error(
+        "no playbook exists in this DuckDB. Run scripts/run_playbook_miner.py first.",
+      );
     }
-    const contractP = firstAgreementId
-      ? tryFetch(
-          `/api/ui/contract/${encodeURIComponent(firstAgreementId)}`,
-          "contract",
-        )
-      : Promise.resolve(null);
+    applyMeta(meta);
+    const playbookId = meta.playbook_id;
+    const playbookQ = `?playbook_id=${encodeURIComponent(playbookId)}`;
 
-    const [clusters, rules, contract] = await Promise.all([
-      clustersP,
-      rulesP,
-      contractP,
+    // 3. Fan out — clusters, rules, portfolio in parallel
+    const [clusters, rules, portfolio] = await Promise.all([
+      mustFetch("/api/ui/clusters", "clusters"),
+      mustFetch("/api/ui/rules" + playbookQ, "rules"),
+      mustFetch(
+        "/api/ui/portfolio?limit=24&" + playbookQ.slice(1),
+        "portfolio",
+      ),
     ]);
     applyClusters(clusters);
     applyRules(rules);
-    applyContract(contract);
+    applyPortfolio(portfolio);
 
-    // Findings for the chosen contract (most recent run).
-    if (firstAgreementId) {
-      const findings = await tryFetch(
-        `/api/ui/findings?agreement_id=${encodeURIComponent(firstAgreementId)}`,
-        "findings",
+    if (window.RULES.length === 0) {
+      throw new Error(
+        "playbook has no rules. Run scripts/run_playbook_miner.py to mine drafts.",
       );
+    }
+
+    // 4. ACTIVE_CONTRACT + findings — use the first portfolio agreement
+    let firstAgreementId = null;
+    if (portfolio && portfolio.portfolio && portfolio.portfolio[0]) {
+      firstAgreementId = portfolio.portfolio[0].id;
+    }
+    if (firstAgreementId) {
+      const [contract, findings] = await Promise.all([
+        mustFetch(
+          `/api/ui/contract/${encodeURIComponent(firstAgreementId)}`,
+          "contract",
+        ),
+        mustFetch(
+          `/api/ui/findings?agreement_id=${encodeURIComponent(firstAgreementId)}`,
+          "findings",
+        ),
+      ]);
+      applyContract(contract);
       applyFindings(findings);
     }
 
-    // Tag the page so the React app can show a small "Live" badge if it
-    // chooses to (the existing UX ignores this; safe to add).
     window.__PLAYBOOK_LIVE = true;
     console.log("[data_loader] live data loaded.", {
-      playbook_id: window.CORPUS_META && window.CORPUS_META.playbook_id,
-      rules: window.RULES && window.RULES.length,
-      clusters: window.CLUSTERS && window.CLUSTERS.length,
-      findings: window.FINDINGS && window.FINDINGS.length,
+      playbook_id: window.CORPUS_META.playbook_id,
+      rules: window.RULES.length,
+      clusters: window.CLUSTERS.length,
+      portfolio: window.PORTFOLIO.length,
+      findings: window.FINDINGS.length,
+      active_contract: window.ACTIVE_CONTRACT.id,
     });
   }
 
-  // Expose a promise the page can await before mounting React.
+  // The HTML mount awaits this promise. On error we render an overlay,
+  // mark the failure on window, and still resolve so the page doesn't hang.
   window.__PLAYBOOK_READY = loadAll().catch((e) => {
-    console.warn("[data_loader] fallback to mock data:", e.message);
+    const baseHint = API_BASE
+      ? `Tried ${API_BASE} (override via ?api=...)`
+      : "Tried same-origin /api/ui/*";
+    console.error("[data_loader] FATAL:", e.message);
+    window.__PLAYBOOK_LIVE = false;
+    window.__PLAYBOOK_ERROR = e.message;
+    renderError(
+      `Could not load required data from the backend. ${baseHint}.`,
+      e.message,
+    );
+    // Resolve, do NOT throw — the HTML mount checks __PLAYBOOK_LIVE.
   });
 })();

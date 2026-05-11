@@ -42,7 +42,9 @@
 
       function App() {
         const [page, setPage] = React.useState("studio");
-        const [focusRule, setFocusRule] = React.useState(RULES[0].id);
+        const [focusRule, setFocusRule] = React.useState(
+          (RULES && RULES[0] && RULES[0].id) || null,
+        );
         const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
 
         const tweaksWithSetter = { ...t, _set: setTweak };
@@ -117,7 +119,12 @@
 
       const root = ReactDOM.createRoot(document.getElementById("root"));
       const ready = window.__PLAYBOOK_READY || Promise.resolve();
-      ready.then(() => root.render(<App />));
+      ready.then(() => {
+        // data_loader has rendered an error overlay if __PLAYBOOK_LIVE is false.
+        // Skip the React mount in that case so the overlay stays visible.
+        if (window.__PLAYBOOK_LIVE === false) return;
+        root.render(<App />);
+      });
     </script>
   </body>
 </html>
