@@ -16,12 +16,14 @@ import threading
 from pathlib import Path
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from config import DATA_DIR
 from core.playbooks.store import PlaybookStore
 from core.playbooks.importers import import_file as _pb_import_file
 from core.playbooks.aligner import align as _pb_align
+from core.ui_endpoints import router as _ui_router
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S")
@@ -31,6 +33,18 @@ app = FastAPI(
     description="Featurizer + clustering pipeline for contract agreements",
     version="0.1.0",
 )
+
+# ── UI: /api/ui/* JSON endpoints + /ui/ static React bundle ─────────────────
+app.include_router(_ui_router)
+
+# The bundled React UX lives at <repo_root>/ux/unzipped. Mounted last so the
+# above /api routes always take priority.
+_UI_ROOT = Path(__file__).parent.parent.parent / "ux" / "unzipped"
+if _UI_ROOT.is_dir():
+    app.mount("/ui", StaticFiles(directory=str(_UI_ROOT), html=True), name="ui")
+    logger.info(f"UI mounted at /ui → {_UI_ROOT}")
+else:
+    logger.warning(f"UI directory not found at {_UI_ROOT}; /ui route disabled")
 
 # ── In-memory job tracker ──────────────────────────────────────────────────────
 _jobs: dict[str, dict] = {}
