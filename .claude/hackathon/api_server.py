@@ -15,8 +15,9 @@ import os
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel, Field
 
 from config import DATA_DIR
@@ -36,6 +37,27 @@ app = FastAPI(
 
 # ── UI: /api/ui/* JSON endpoints + /ui/ static React bundle ─────────────────
 app.include_router(_ui_router)
+
+
+class _NoCacheStaticUIMiddleware(BaseHTTPMiddleware):
+    """Force browsers to revalidate /ui/* assets on every request.
+
+    Live-edit workflow: we redeploy JSX/CSS in place and expect refresh to
+    pick up changes. Without this header, modern browsers cache aggressively
+    via heuristics and serve stale assets even after a normal reload.
+    `no-cache` (NOT `no-store`) keeps the disk cache but requires the browser
+    to send an If-None-Match. StaticFiles already emits ETag so the round-
+    trip is a cheap 304 when nothing changed.
+    """
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/ui/"):
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
+app.add_middleware(_NoCacheStaticUIMiddleware)
 
 # The bundled React UX lives at <repo_root>/ux/unzipped. Mounted last so the
 # above /api routes always take priority.
