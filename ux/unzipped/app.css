@@ -2097,42 +2097,48 @@ button {
   letter-spacing: 0.01em;
   text-transform: none;
 }
+/* Severity glyph is now a Phosphor <i> icon — color via currentColor, sized
+   to match the surrounding text. No background dot. */
 .studio-slim .sev-badge .sev-glyph {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: currentColor;
-  font-size: 0;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  color: currentColor;
 }
 .studio-slim .sev-blocker {
-  color: var(--status-error-700, #8a2929);
+  color: var(--status-error-700);
 }
 .studio-slim .sev-blocker .sev-glyph {
-  background: var(--status-error-500, #b94545);
+  color: var(--status-error-500);
 }
 .studio-slim .sev-approval_required {
-  color: #7f4c0e;
+  color: var(--status-warn-700);
 }
 .studio-slim .sev-approval_required .sev-glyph {
-  background: #c97c1d;
+  color: var(--status-warn-500);
 }
 .studio-slim .sev-warn {
-  color: var(--status-warn-700, #7a4e0a);
+  color: var(--status-warn-700);
 }
 .studio-slim .sev-warn .sev-glyph {
-  background: var(--status-warn-500, #c97c1d);
+  color: var(--status-warn-500);
 }
 .studio-slim .sev-info {
-  color: var(--status-info-700, #2c5f7f);
+  color: var(--status-info-700);
 }
 .studio-slim .sev-info .sev-glyph {
-  background: var(--status-info-500, #3d82a6);
+  color: var(--status-info-500);
 }
 .studio-slim .sev-pass {
-  color: var(--status-ok-700, #4a5c3a);
+  color: var(--status-ok-700);
 }
 .studio-slim .sev-pass .sev-glyph {
-  background: var(--status-ok-500, #6b7c4f);
+  color: var(--status-ok-500);
 }
 
 /* provenance chip becomes a subtle inline pill */
