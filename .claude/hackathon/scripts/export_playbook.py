@@ -116,7 +116,7 @@ def export(db_path: str, *,
             out_playbooks.append(pb)
 
         return {
-            "exported_at": _dt.datetime.utcnow().isoformat() + "Z",
+            "exported_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
             "source_db": str(Path(db_path).resolve()),
             "playbook_count": len(out_playbooks),
             "rule_count": sum(len(p["rules"]) for p in out_playbooks),
