@@ -21,10 +21,26 @@ from core.playbooks.store import PlaybookStore
 def migrate(db_path: str, *, name: str = "Auto-mined baseline") -> str:
     """Lift playbook_benchmarks rows into the new schema and return the new playbook_id."""
     s = PlaybookStore(db_path)
-    rows = s.conn.execute(
-        "SELECT cluster_id, cluster_label, benchmark_text, source, mean_deviation "
-        "FROM playbook_benchmarks"
-    ).fetchall()
+    # Prefer JOIN to clusters for a human-readable label. Tests + DBs where the
+    # clusters table is absent (legacy snapshots) fall through to cluster_id.
+    has_clusters = bool(s.conn.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_schema='main' AND table_name='clusters'"
+    ).fetchone())
+    if has_clusters:
+        rows = s.conn.execute(
+            "SELECT b.cluster_id, "
+            "       COALESCE(c.label, b.cluster_id) AS cluster_label, "
+            "       b.benchmark_text, b.source, b.mean_deviation "
+            "FROM playbook_benchmarks b "
+            "LEFT JOIN clusters c ON b.cluster_id = c.cluster_id"
+        ).fetchall()
+    else:
+        rows = s.conn.execute(
+            "SELECT cluster_id, cluster_id AS cluster_label, "
+            "       benchmark_text, source, mean_deviation "
+            "FROM playbook_benchmarks"
+        ).fetchall()
     pid = s.create_playbook(
         name=name,
         owner_org="auto",

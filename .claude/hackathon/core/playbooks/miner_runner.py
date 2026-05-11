@@ -1,10 +1,43 @@
 """Aggregates ClusteringStore tables into a `corpus` dict that mine_candidates consumes."""
 from __future__ import annotations
+import re
 from collections import defaultdict
 from typing import Any
 
 from core.playbooks.miner import mine_candidates
 from core.playbooks.store import PlaybookStore
+
+
+# Match the first signed-number literal in a string (handles "$1,000", "30 days",
+# "12.5%", "USD 250000", etc.). Returns None if no numeric literal is found.
+_NUM_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+
+
+def _coerce_numeric(value):
+    """Return (kind, value) where kind ∈ {'numeric','string','none'}.
+    LLM extractions arrive as strings — even for numbers (e.g. '30 days', '$1,000').
+    We pull the first numeric literal so distribution mining can use them."""
+    if value is None:
+        return "none", None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return "numeric", float(value)
+    if isinstance(value, bool):
+        return "string", str(value)
+    s = str(value).strip()
+    if not s:
+        return "none", None
+    # Try direct float first (avoids matching just the integer part of "30.5 days")
+    try:
+        return "numeric", float(s.replace(",", ""))
+    except ValueError:
+        pass
+    m = _NUM_RE.search(s)
+    if m:
+        try:
+            return "numeric", float(m.group(0).replace(",", ""))
+        except ValueError:
+            pass
+    return "string", s
 
 
 def build_corpus(clustering_store) -> tuple[dict, dict[str, int]]:
@@ -49,14 +82,11 @@ def build_corpus(clustering_store) -> tuple[dict, dict[str, int]]:
         if not (d_label and c_label and fname):
             continue
         key = f"{d_label}::{c_label}::{fname}"
-        # Coerce numeric strings to floats; leave others as strings; keep None as None
-        if value is None:
+        kind, coerced = _coerce_numeric(value)
+        if kind == "none":
             field_values[key].append(None)
         else:
-            try:
-                field_values[key].append(float(value))
-            except (TypeError, ValueError):
-                field_values[key].append(str(value))
+            field_values[key].append(coerced)
 
     corpus: dict[str, Any] = {
         "domain_clusters": dict(domain_clusters),

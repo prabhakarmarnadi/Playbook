@@ -17,12 +17,32 @@ from typing import Any
 from .store import PlaybookStore
 
 
-COVERAGE_THRESHOLD = 0.90       # cluster present in ≥90% of domain → expected
+COVERAGE_THRESHOLD = 0.90       # cluster present in ≥90% of domain → expected (large N)
 NUMERIC_QUANTILE_LO = 0.10      # use p10/p90 as suggested rule bounds
 NUMERIC_QUANTILE_HI = 0.90
 MIN_OBSERVATIONS = 5
 CATEGORICAL_MODE_THRESHOLD = 0.70  # dominant string value must appear in ≥70% of non-null obs
 OUTLIER_THRESHOLD = 0.10           # cluster outlier_pct must be ≥10% to emit a rule
+
+
+def _coverage_threshold_for(n_total: int) -> float:
+    """Auto-scale coverage threshold by corpus size.
+
+    With small N a strict 90% floor is impractical (5 docs → must hit 5/5).
+    For tiny corpora we relax to a majority floor; the threshold approaches
+    COVERAGE_THRESHOLD asymptotically as N grows.
+      N=1..5:   0.60      (majority of a handful)
+      N=6..10:  0.70
+      N=11..30: 0.80
+      N>=31:    0.90      (statistical confidence)
+    """
+    if n_total <= 5:
+        return 0.60
+    if n_total <= 10:
+        return 0.70
+    if n_total <= 30:
+        return 0.80
+    return COVERAGE_THRESHOLD
 
 
 def _quantile(xs: list[float], q: float) -> float:
@@ -39,10 +59,11 @@ def mine_candidates(store: PlaybookStore, playbook_id: str,
     cands: list[dict] = []
 
     # ── coverage candidates ──────────────────────────────────────────────
+    cov_threshold = _coverage_threshold_for(n_total_per_domain)
     for domain, clusters in (corpus.get("domain_clusters") or {}).items():
         for cluster_label, n in clusters.items():
             ratio = n / max(1, n_total_per_domain)
-            if ratio < COVERAGE_THRESHOLD:
+            if ratio < cov_threshold:
                 continue
             rid = store.create_rule(
                 playbook_id=playbook_id,
