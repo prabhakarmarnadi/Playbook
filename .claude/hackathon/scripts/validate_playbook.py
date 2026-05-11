@@ -620,6 +620,66 @@ def test_miner_runner_aggregates_clustering_store():
     print("  [PASS] miner_runner aggregates clustering store")
 
 
+def test_run_miner_auto_rebinds_labels():
+    """run_miner should auto-rebind label:* placeholder bindings to real entity_ids
+    when rebind=True (the default). After mining, no cluster/domain/field binding
+    should remain in the label:* form if the ontology has a matching entity."""
+    import tempfile, os
+    from core.store import ClusteringStore
+    from core.playbooks.store import PlaybookStore
+    from core.playbooks.miner_runner import run_miner
+
+    fd, db = tempfile.mkstemp(suffix=".duckdb")
+    os.close(fd); os.unlink(db)
+    try:
+        cs = ClusteringStore(db)
+        # Seed a tiny ontology that's enough for run_miner to mine + rebind.
+        cs.conn.execute("INSERT INTO domains (domain_id, label) VALUES ('d_msa', 'MSA')")
+        for i in range(5):
+            cs.conn.execute(
+                "INSERT INTO agreements (agreement_id, filename, domain_id) VALUES (?,?,?)",
+                [f"a_{i}", f"a_{i}.pdf", "d_msa"]
+            )
+        # One cluster that 4/5 docs contain → 80% coverage → coverage candidate
+        cs.conn.execute(
+            "INSERT INTO clusters (cluster_id, domain_id, label) VALUES ('c_indem', 'd_msa', 'Indemnification')"
+        )
+        for i in range(4):
+            cs.conn.execute(
+                "INSERT INTO clauses (clause_id, agreement_id, clause_type_id, full_text) VALUES (?,?,?,?)",
+                [f"cl_{i}", f"a_{i}", "c_indem", f"indemnification clause {i}"]
+            )
+
+        pb = PlaybookStore(db)
+        pid, cands = run_miner(cs, pb, playbook_name="rebind-test")
+        # At least one coverage candidate
+        cov = [c for c in cands if c["kind"] == "coverage"]
+        assert cov, f"expected ≥1 coverage candidate, got {[c['kind'] for c in cands]}"
+
+        # All cluster bindings should now point to real cluster_ids (not label:*)
+        rows = pb.conn.execute(
+            "SELECT entity_kind, entity_id, label_text FROM rule_bindings"
+        ).fetchall()
+        assert rows, "no bindings created"
+        unresolved = [r for r in rows if str(r[1]).startswith("label:")]
+        assert not unresolved, (
+            f"expected zero label:* bindings after run_miner, got {unresolved}"
+        )
+        # Should have rebound to d_msa for the coverage rule's domain binding
+        domain_bindings = [r for r in rows if r[0] == "domain"]
+        assert any(r[1] == "d_msa" for r in domain_bindings), (
+            f"expected at least one domain binding rebound to d_msa, got {domain_bindings}"
+        )
+        pb.close()
+        if hasattr(cs, "close"): cs.close()
+    finally:
+        for ext in ("", ".wal"):
+            p = db + ext
+            if os.path.exists(p):
+                os.unlink(p)
+    print(f"  [PASS] run_miner auto-rebinds label:* → real entity_ids ({len(rows)} bindings, 0 unresolved)")
+
+
 def test_end_to_end_corpus_to_alignment():
     """INTEGRATION: corpus → mine → accept → align fires the right rules on a synthetic doc."""
     import os
@@ -657,9 +717,10 @@ def test_end_to_end_corpus_to_alignment():
                 "INSERT INTO extractions (extraction_id, agreement_id, field_id, value) VALUES (?,?,?,?)",
                 [f"e_{i}", f"a{i}", "f1", "100000"]
             )
-        # Now mine
+        # Now mine. Disable auto-rebind so the explicit soft_rebind() call below
+        # has work to do — this test exercises soft_rebind as a standalone API.
         pb = PlaybookStore(db_path)
-        pid, cands = run_miner(cs, pb, playbook_name="MinedDraft")
+        pid, cands = run_miner(cs, pb, playbook_name="MinedDraft", rebind=False)
         assert any(c["kind"] == "coverage" for c in cands)
         # Promote ALL drafts to active so we can align
         for r in pb.list_rules(pid):
@@ -837,6 +898,7 @@ CHECKS = [
     ("miner_categorical_mode",         test_miner_categorical_mode_candidates),
     ("miner_outlier_candidates",       test_miner_outlier_candidates),
     ("miner_runner_aggregation",       test_miner_runner_aggregates_clustering_store),
+    ("run_miner_auto_rebinds_labels",  test_run_miner_auto_rebinds_labels),
     ("end_to_end_corpus_to_alignment", test_end_to_end_corpus_to_alignment),
     ("arm_skips_tiny_corpora",         test_arm_skips_tiny_corpora),
     ("macro_label_parallelism",        test_macro_label_parallelism),

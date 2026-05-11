@@ -181,33 +181,56 @@ def mine_candidates(store: PlaybookStore, playbook_id: str,
 
 def soft_rebind(store: PlaybookStore, *, embed,
                  cluster_centroids: dict[str, dict],
-                 threshold: float = 0.85) -> int:
-    """For each binding with confidence < 1.0 (or unresolved 'label:' entity_id),
-    find the best-matching cluster centroid by cosine on label embeddings.
+                 threshold: float = 0.85,
+                 entity_kind: str | None = None) -> int:
+    """For each binding with unresolved 'label:' entity_id (and matching entity_kind
+    if given), find the best-matching candidate by cosine similarity on label
+    embeddings.
 
-    cluster_centroids = {cluster_id: {"label": str, "embedding": list[float]}}
+    cluster_centroids = {entity_id: {"label": str, "embedding": list[float]?}}
+      — "embedding" is optional; if absent we embed(label) on the fly.
+    entity_kind: filter to bindings of this kind (e.g. "cluster", "domain", "field").
+      None matches all kinds (legacy behavior).
+    threshold: minimum cosine to accept. The updated binding's confidence is set
+      to the matched cosine value.
     Returns number of bindings updated.
     """
     import numpy as np
     updated = 0
-    rows = store.conn.execute(
-        "SELECT binding_id, label_text FROM rule_bindings "
-        "WHERE entity_id LIKE 'label:%' AND label_text IS NOT NULL"
-    ).fetchall()
+    if entity_kind:
+        rows = store.conn.execute(
+            "SELECT binding_id, label_text FROM rule_bindings "
+            "WHERE entity_id LIKE 'label:%' AND label_text IS NOT NULL AND entity_kind=?",
+            [entity_kind],
+        ).fetchall()
+    else:
+        rows = store.conn.execute(
+            "SELECT binding_id, label_text FROM rule_bindings "
+            "WHERE entity_id LIKE 'label:%' AND label_text IS NOT NULL"
+        ).fetchall()
     if not rows or not cluster_centroids:
         return 0
-    centroid_items = list(cluster_centroids.items())
-    centroid_vecs = np.asarray([embed(c["label"]) for _, c in centroid_items])
-    centroid_norms = np.linalg.norm(centroid_vecs, axis=1) + 1e-9
+    candidate_items = list(cluster_centroids.items())
+    # Cache candidate embeddings — use provided "embedding" if present, else embed(label).
+    candidate_vecs = []
+    for _, c in candidate_items:
+        if c.get("embedding") is not None:
+            candidate_vecs.append(np.asarray(c["embedding"]))
+        else:
+            candidate_vecs.append(np.asarray(embed(c["label"])))
+    candidate_vecs = np.asarray(candidate_vecs)
+    if candidate_vecs.size == 0:
+        return 0
+    candidate_norms = np.linalg.norm(candidate_vecs, axis=1) + 1e-9
 
     for bid, label in rows:
         v = np.asarray(embed(label))
         if v.size == 0:
             continue
-        cos = (centroid_vecs @ v) / (centroid_norms * (np.linalg.norm(v) + 1e-9))
+        cos = (candidate_vecs @ v) / (candidate_norms * (np.linalg.norm(v) + 1e-9))
         best = int(np.argmax(cos))
         if float(cos[best]) >= threshold:
-            cid, _ = centroid_items[best]
+            cid, _ = candidate_items[best]
             store.conn.execute(
                 "UPDATE rule_bindings SET entity_id=?, confidence=? WHERE binding_id=?",
                 [cid, float(cos[best]), bid],
