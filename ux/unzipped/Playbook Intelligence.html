@@ -33,7 +33,7 @@
 
     <script type="text/babel" data-presets="react">
       const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/ {
-        studio_layout: "card-feed",
+        studio_layout: "slim",
         alignment_view: "single",
         portfolio_layout: "heatmap",
         density: "comfortable",
@@ -74,6 +74,7 @@
                   label="Studio"
                   value={t.studio_layout}
                   options={[
+                    { value: "slim", label: "Slim" },
                     { value: "card-feed", label: "Cards" },
                     { value: "kanban", label: "Kanban" },
                     { value: "table", label: "Table" },
