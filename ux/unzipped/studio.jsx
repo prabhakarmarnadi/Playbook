@@ -121,18 +121,15 @@ function PlaybookStudio({ tweaks, openRule, focusRule, setFocusRule }) {
                 No rules match the current filters.
               </div>
             )}
-            {rules.map((r) => (
-              <RuleCard
-                key={r.id}
-                rule={r}
-                state={ruleState(r)}
-                palette={palette}
-                focused={focus && focus.id === r.id}
-                onFocus={() => setFocusRule(r.id)}
-                onAccept={() => setAccepted({ ...accepted, [r.id]: true })}
-                onRetire={() => setRetired({ ...retired, [r.id]: true })}
-              />
-            ))}
+            <HierarchicalFeed
+              rules={rules}
+              focus={focus}
+              palette={palette}
+              ruleState={ruleState}
+              setFocusRule={setFocusRule}
+              accept={(id) => setAccepted({ ...accepted, [id]: true })}
+              retire={(id) => setRetired({ ...retired, [id]: true })}
+            />
           </div>
           <div className="canvas-col">
             {focus && (
@@ -365,6 +362,9 @@ function RuleCard({
           <StatusBadge status={state} />
         </div>
         <h3 className="rc-title">{rule.title}</h3>
+        {rule.derivation && (
+          <DerivationLine derivation={rule.derivation} field={rule.field} />
+        )}
         <div className="rc-prov">
           <ProvenanceChip source={rule.source} />
           {rule.source.miner === "distribution" && (
@@ -883,6 +883,107 @@ function CoverageRing({ ratio }) {
         {Math.round(ratio * 100)}%
       </text>
     </svg>
+  );
+}
+
+/* ────────────────────────── DerivationLine (slim layout) ────────────────────
+   Renders a one-line lineage strip showing where this rule came from:
+   miner kind icon, a one-sentence label, and tiny stat chips
+   (coverage=80%, n=4, mode=Delaware, etc.). */
+const _MINER_ICONS = {
+  coverage: "ph-funnel",
+  distribution: "ph-chart-bar",
+  categorical: "ph-list-bullets",
+  outlier: "ph-broadcast",
+  contrastive: "ph-arrows-out-line-horizontal",
+  migrated: "ph-archive",
+  unknown: "ph-question",
+};
+
+function DerivationLine({ derivation, field }) {
+  if (!derivation) return null;
+  const icon = _MINER_ICONS[derivation.miner_kind] || "ph-question";
+  return (
+    <div className="rc-derivation">
+      <i className={`ph ${icon}`} aria-hidden="true" />
+      <span className="rc-deriv-label">{derivation.label}</span>
+      {(derivation.stats || []).map((s, i) => (
+        <span key={i} className="rc-deriv-stat">
+          <span className="rc-deriv-stat-key">{s.key}</span>
+          <span className="rc-deriv-stat-val">{s.value}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/* ────────────────────────── HierarchicalFeed (slim layout) ──────────────────
+   Groups rules by (group_kind, group_label) so domain-level rules render
+   under a top-level "Cross-cluster" section and per-cluster rules nest under
+   their respective cluster heading. Renders the derivation chip line per
+   rule card so the lineage from cluster → fields → predicate is visible.
+*/
+function HierarchicalFeed({
+  rules,
+  focus,
+  palette,
+  ruleState,
+  setFocusRule,
+  accept,
+  retire,
+}) {
+  // Group by (group_kind, group_label). Domain section sorts first.
+  const groups = useMemoS(() => {
+    const m = new Map();
+    (rules || []).forEach((r) => {
+      const key = `${r.group_kind || "cluster"}::${r.group_label || "Unbound"}`;
+      if (!m.has(key)) {
+        m.set(key, {
+          kind: r.group_kind || "cluster",
+          label: r.group_label || "Unbound",
+          items: [],
+        });
+      }
+      m.get(key).items.push(r);
+    });
+    const arr = Array.from(m.values());
+    arr.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === "domain" ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+    return arr;
+  }, [rules]);
+
+  return (
+    <div className="hier-feed">
+      {groups.map((g, gi) => (
+        <div key={gi} className={`hier-group hier-${g.kind}`}>
+          <div className="hier-head">
+            <i
+              className={`ph ${g.kind === "domain" ? "ph-globe-hemisphere-west" : "ph-folder"}`}
+              aria-hidden="true"
+            />
+            <span className="hier-label">{g.label}</span>
+            <span className="hier-count">{g.items.length}</span>
+            <span className="hier-kind-tag">
+              {g.kind === "domain" ? "applies to all clusters" : "cluster"}
+            </span>
+          </div>
+          {g.items.map((r) => (
+            <RuleCard
+              key={r.id}
+              rule={r}
+              state={ruleState(r)}
+              palette={palette}
+              focused={focus && focus.id === r.id}
+              onFocus={() => setFocusRule(r.id)}
+              onAccept={() => accept(r.id)}
+              onRetire={() => retire(r.id)}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 

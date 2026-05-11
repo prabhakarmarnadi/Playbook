@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -179,14 +180,206 @@ def clusters() -> dict:
             "       COALESCE(quality_score, 0.0) AS quality "
             "FROM clusters ORDER BY chunk_count DESC"
         ).fetchall()
-        return {"clusters": [
-            {"id": r[0], "label": r[1], "chunk_count": int(r[2] or 0),
-             "quality": float(r[3] or 0.0)}
-            for r in rows
-        ]}
+        # Build the inferred-label cache once per request so we don't query
+        # field_definitions inside a loop.
+        label_map = _inferred_cluster_labels(cs)
+        out = []
+        for r in rows:
+            raw_label = r[1] or ""
+            inferred = label_map.get(r[0])
+            display = inferred or raw_label
+            out.append({
+                "id": r[0],
+                "label": display,
+                "raw_label": raw_label,
+                "inferred": bool(inferred and inferred != raw_label),
+                "chunk_count": int(r[2] or 0),
+                "quality": float(r[3] or 0.0),
+            })
+        return {"clusters": out}
     finally:
         if hasattr(cs, "close"):
             cs.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Cluster-label inference
+#
+# The clustering pipeline emits placeholder labels like "Clause_Type_7". For
+# display purposes we infer a meaningful name from the cluster's discovered
+# fields. The mapping is keyword-driven — fast, no LLM call needed — and
+# falls back to title-casing the first 1-2 field names when no theme matches.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Ordered most-specific-first so we don't fall back to "Term" when both
+# "termination" and "term" keywords are present.
+_LABEL_THEMES = [
+    ("Confidentiality",   ("confidential", "nda", "non_disclosure", "trade_secret")),
+    ("Intellectual Property", ("intellectual_property", "ip_ownership", "assignment_of_inventions", "patent", "copyright", "license")),
+    ("Indemnification",   ("indemnif", "hold_harmless", "defense_obligation")),
+    ("Limitation of Liability", ("liability_cap", "limitation_of_liability", "consequential_damages")),
+    ("Termination",       ("termination", "terminate_for_cause", "terminate_for_convenience")),
+    ("Auto-Renewal",      ("auto_renewal", "renewal_term", "non_renewal")),
+    ("Governing Law & Jurisdiction", ("governing_law", "jurisdiction", "venue", "choice_of_law")),
+    ("Arbitration",       ("arbitration", "arbitrator", "dispute_resolution", "jams", "aaa")),
+    ("Insurance",         ("insurance", "coverage_amount", "policy_limit")),
+    ("Compensation",      ("consulting_fee", "compensation", "monthly_fee", "hourly_rate", "retainer", "vesting", "bonus")),
+    ("Payment Terms",     ("payment_terms", "payment_deadline", "invoice", "net_days", "late_payment")),
+    ("Non-Compete & Non-Solicitation", ("non_compete", "non_solicit", "restricted_period")),
+    ("Compliance & Audit", ("compliance", "audit", "anti_corruption", "anti_bribery", "fcpa")),
+    ("Change of Control", ("change_of_control", "merger", "acquisition")),
+    ("Force Majeure",     ("force_majeure", "act_of_god")),
+    ("Notice & Communications", ("notice_period", "notice_address", "notification")),
+    ("Representations & Warranties", ("representation", "warranty", "warranties")),
+    ("Party Identification", ("consultant_name", "company_name", "client_name", "vendor_name", "party_name")),
+    ("Term & Effective Date", ("effective_date", "expiration_date", "initial_term", "term_duration")),
+    ("Definitions",       ("defined_term", "definition", "regulatory_authority")),
+]
+
+# Pretty noun for a field name — strips trailing _days/_amount/_pct/_id etc.
+_FIELD_NAME_STRIP = ("_days", "_amount", "_pct", "_percent", "_id", "_text",
+                      "_status", "_type", "_value", "_date", "_name", "_period",
+                      "_threshold", "_count", "_duration", "_months", "_years")
+
+
+def _title_field(name: str) -> str:
+    s = (name or "").strip()
+    for suf in _FIELD_NAME_STRIP:
+        if s.endswith(suf):
+            s = s[: -len(suf)]
+            break
+    return s.replace("_", " ").strip().title() or "Misc"
+
+
+def _infer_label_from_fields(field_names: list[str], raw_label: str) -> str:
+    """Pick a human-readable label from a cluster's field names.
+
+    Strategy:
+      1. Score each theme by how many of its keywords appear as substrings
+         in the lowercased, underscore-preserved field names.
+      2. Pick the highest-scoring theme; if tied, the first wins (order is
+         most-specific first).
+      3. If no theme has any hits, fall back to title-casing the first 1-2
+         field names ("Compensation, Vesting").
+      4. If no field names at all, keep raw_label.
+    """
+    if not field_names:
+        return raw_label
+    bag = " ".join(f.lower() for f in field_names if f)
+    best = (0, None)
+    for theme_name, kws in _LABEL_THEMES:
+        score = sum(1 for kw in kws if kw in bag)
+        if score > best[0]:
+            best = (score, theme_name)
+    if best[1]:
+        return best[1]
+    # Fallback: join first 1–2 normalized field names
+    nouns = []
+    seen = set()
+    for f in field_names[:4]:
+        n = _title_field(f)
+        if n and n not in seen:
+            seen.add(n)
+            nouns.append(n)
+        if len(nouns) == 2:
+            break
+    return " & ".join(nouns) if nouns else raw_label
+
+
+# Module-level cache so Gemini is called at most once per cluster_id per process.
+_LLM_LABEL_CACHE: dict[str, str] = {}
+
+
+def _llm_label_from_samples(cluster_id: str, samples: list[str]) -> Optional[str]:
+    """Best-effort: ask Gemini for a 1–3 word legal clause label given a few
+    example clauses. Returns None when Gemini is not configured or any error
+    occurs. Caches successful results module-level."""
+    if cluster_id in _LLM_LABEL_CACHE:
+        return _LLM_LABEL_CACHE[cluster_id]
+    if not samples:
+        return None
+    backend = os.getenv("LLM_BACKEND", "openai").lower()
+    if backend == "gemini" and not (os.getenv("GOOGLE_CLOUD_PROJECT") and os.getenv("GOOGLE_APPLICATION_CREDENTIALS")):
+        return None
+    try:
+        from core.llm_client import LLMClient
+        client = LLMClient()
+    except Exception:
+        return None
+
+    excerpts = "\n\n".join(
+        f"({i + 1}) {s.strip()[:400]}" for i, s in enumerate(samples[:4])
+    )
+    prompt = (
+        "Label this legal clause type in 1 to 3 words (Title Case). Examples of "
+        "good labels: Indemnification, Limitation of Liability, Governing Law, "
+        "Termination, Non-Compete, Notice & Communications, Confidentiality. "
+        "Return ONLY the label, no other text.\n\n"
+        f"Sample clauses from one cluster:\n{excerpts}"
+    )
+    try:
+        text = client.complete(prompt, system="You are a precise legal clause taxonomist.",
+                                  temperature=0.0, max_tokens=20)
+    except Exception as e:
+        logger.warning(f"LLM label call failed for {cluster_id}: {e}")
+        return None
+    label = (text or "").strip().strip("\"'`")
+    # Reject empty / overly long / obviously wrong responses
+    if not label or len(label) > 60 or "\n" in label:
+        return None
+    _LLM_LABEL_CACHE[cluster_id] = label
+    return label
+
+
+def _inferred_cluster_labels(cs) -> dict[str, str]:
+    """Returns {cluster_id: inferred_label} for every cluster.
+
+    Order of precedence per cluster:
+      1. Real label (anything not matching the Clause_Type_N placeholder) → pass through.
+      2. Theme-keyword match against the cluster's discovered field names.
+      3. Title-cased fallback joining the first 1-2 normalized field names.
+      4. Gemini call seeded with 3-4 sample clauses from the cluster
+         (only when no fields exist; cached module-level).
+      5. Raw placeholder if all of the above failed.
+    """
+    out: dict[str, str] = {}
+    try:
+        rows = cs.conn.execute(
+            "SELECT c.cluster_id, c.label, "
+            "       string_agg(f.name, '||') AS field_names "
+            "FROM clusters c "
+            "LEFT JOIN field_definitions f ON f.cluster_id = c.cluster_id "
+            "GROUP BY c.cluster_id, c.label"
+        ).fetchall()
+    except Exception:
+        return out
+    placeholder = re.compile(r"^(Clause_Type_\d+|Cluster_\d+|cluster_\d+|topic_\d+)$")
+
+    for cid, raw, fnames_blob in rows:
+        if not cid:
+            continue
+        is_placeholder = bool(raw and placeholder.match(str(raw)))
+        if not is_placeholder:
+            out[cid] = raw
+            continue
+        fnames = [s for s in (fnames_blob or "").split("||") if s]
+        if fnames:
+            out[cid] = _infer_label_from_fields(fnames, raw)
+            continue
+        # No fields — try LLM (cheap, cached).
+        samples: list[str] = []
+        try:
+            sample_rows = cs.conn.execute(
+                "SELECT full_text FROM clauses WHERE clause_type_id = ? "
+                "AND full_text IS NOT NULL LIMIT 4",
+                [cid],
+            ).fetchall()
+            samples = [r[0] for r in sample_rows if r and r[0]]
+        except Exception:
+            samples = []
+        llm_label = _llm_label_from_samples(cid, samples) if samples else None
+        out[cid] = llm_label or raw
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -213,42 +406,108 @@ def rules(playbook_id: Optional[str] = None,
             playbook_id = counts[0][1]["playbook_id"]
 
         rule_rows = s.list_rules(playbook_id)
-        cluster_label_map = {
-            r[0]: r[1]
-            for r in cs.conn.execute("SELECT cluster_id, label FROM clusters").fetchall()
-        }
+        # cluster_id → inferred human label.
+        cluster_label_map = _inferred_cluster_labels(cs)
+        # raw label → inferred label (used for predicate-string substitution).
+        raw_label_map: dict[str, str] = {}
+        for r in cs.conn.execute("SELECT cluster_id, label FROM clusters").fetchall():
+            cid, raw = r[0], r[1]
+            if cid and raw:
+                inf = cluster_label_map.get(cid)
+                if inf:
+                    raw_label_map[raw] = inf
+        # field_id → cluster_id, and field_name → cluster_id (for field-scope rules)
+        fname_to_cluster: dict[str, str] = {}
+        for fid, fname, cid in cs.conn.execute(
+            "SELECT field_id, name, cluster_id FROM field_definitions"
+        ).fetchall():
+            if fname and cid:
+                fname_to_cluster[fname] = cid
+
+        domain_row = cs.conn.execute(
+            "SELECT label FROM domains ORDER BY agreement_count DESC LIMIT 1"
+        ).fetchone()
+        domain_label = (domain_row[0] if domain_row else "All Documents") or "All Documents"
 
         out = []
         for r in rule_rows:
             rid = r["rule_id"]
             bindings = s.bindings_for(rid)
-            # Pull a cluster label if any binding is cluster-kind
-            cluster_id = None
-            cluster_label = None
-            for b in bindings:
-                if b["entity_kind"] == "cluster":
-                    cluster_id = b["entity_id"]
-                    cluster_label = cluster_label_map.get(cluster_id) or b.get("label_text")
-                    break
-            if cluster_label is None and bindings:
-                cluster_label = bindings[0].get("label_text")
-
+            applies_to = r["applies_to"]
             prov = r.get("source_provenance") or {}
+
             # Field name (if applicable) for distribution/categorical rules
             field_name = None
-            if r.get("applies_to") == "field" and isinstance(r.get("predicate"), dict):
+            if applies_to == "field" and isinstance(r.get("predicate"), dict):
                 args = r["predicate"].get("args", [])
-                if args:
-                    field_name = args[0] if isinstance(args[0], str) else None
+                if args and isinstance(args[0], str):
+                    field_name = args[0]
+
+            # ── Resolve target cluster (id + inferred label).
+            target_cluster_id = None
+            target_cluster_label = None
+            if applies_to == "cluster":
+                # Bound cluster
+                for b in bindings:
+                    if b["entity_kind"] == "cluster":
+                        target_cluster_id = b["entity_id"]
+                        break
+            elif applies_to == "field" and field_name:
+                target_cluster_id = fname_to_cluster.get(field_name)
+            elif applies_to in ("domain", "document"):
+                # Parse predicate: any_of[clause.classified_as("ClusterName")]
+                target_raw_label = _extract_target_cluster_label_from_predicate(r.get("predicate"))
+                if target_raw_label:
+                    target_cluster_label = raw_label_map.get(target_raw_label, target_raw_label)
+                    # Find cluster_id by raw label
+                    row = cs.conn.execute(
+                        "SELECT cluster_id FROM clusters WHERE label = ? LIMIT 1",
+                        [target_raw_label],
+                    ).fetchone()
+                    if row:
+                        target_cluster_id = row[0]
+            elif applies_to in ("composite", "cross_field"):
+                # Try first cluster binding
+                for b in bindings:
+                    if b["entity_kind"] == "cluster":
+                        target_cluster_id = b["entity_id"]
+                        break
+
+            if target_cluster_id and not target_cluster_label:
+                target_cluster_label = cluster_label_map.get(target_cluster_id)
+
+            # ── Rewrite title using raw → inferred label map + domain label
+            display_title = _rewrite_title_with_label(
+                r["title"], raw_label_map, domain_label,
+            )
+
+            # Group key for the UI hierarchy.
+            if applies_to in ("domain", "document"):
+                group_kind = "domain"
+                group_id = "__domain__"
+                group_label = domain_label
+            else:
+                group_kind = "cluster"
+                group_id = target_cluster_id or "__unbound__"
+                group_label = target_cluster_label or "Unbound"
+
+            # Derivation: a short structured trail showing WHERE this rule
+            # came from. Frontend renders this as a "X clauses · Y fields · Z%
+            # coverage" chip line under the rule title.
+            derivation = _build_derivation(prov, applies_to, field_name, target_cluster_label, cs)
 
             entry = {
                 "id": rid,
-                "title": r["title"],
+                "title": display_title,
+                "title_raw": r["title"],
                 "description": r.get("description") or "",
-                "applies_to": r["applies_to"],
+                "applies_to": applies_to,
                 "field": field_name,
-                "cluster_label": cluster_label,
-                "cluster_id": cluster_id,
+                "cluster_label": target_cluster_label,
+                "cluster_id": target_cluster_id,
+                "group_kind": group_kind,    # "domain" | "cluster"
+                "group_id": group_id,
+                "group_label": group_label,
                 "predicate": r.get("predicate"),
                 "severity": r["severity"],
                 "answer_type": r.get("answer_type"),
@@ -256,6 +515,7 @@ def rules(playbook_id: Optional[str] = None,
                 "status": r.get("status", "draft"),
                 "confidence": _confidence_for_rule(r, bindings),
                 "source": _shape_source(prov),
+                "derivation": derivation,
                 "preferred_language": r.get("preferred_language"),
                 "walkaway_language": r.get("walkaway_language"),
                 "rationale": r.get("rationale"),
@@ -266,7 +526,7 @@ def rules(playbook_id: Optional[str] = None,
             if include_examples:
                 entry["examples"] = _compute_examples(
                     cs, rule=r, field_name=field_name,
-                    cluster_id=cluster_id, max_per_side=max_examples,
+                    cluster_id=target_cluster_id, max_per_side=max_examples,
                 )
             else:
                 entry["examples"] = {"pass": [], "fail": []}
@@ -295,6 +555,150 @@ def _confidence_for_rule(rule: dict, bindings: list[dict]) -> float:
     if not bindings:
         return 0.5
     return float(max(b.get("confidence", 0.0) or 0.0 for b in bindings))
+
+
+_PLACEHOLDER_RE = re.compile(r"\b(Clause_Type_\d+|Cluster_\d+)\b", re.IGNORECASE)
+
+
+def _rewrite_title_with_label(title: str,
+                                raw_label_map: dict[str, str],
+                                domain_label: str) -> str:
+    """Replace each Clause_Type_N placeholder in a rule title with its
+    inferred human label, looked up by exact raw match. Also rewrites the
+    noisy 'ALL DOCUMENTS' prefix to the actual domain label."""
+    out = title or ""
+    def _sub(m: re.Match) -> str:
+        raw = m.group(0)
+        return raw_label_map.get(raw, raw)
+    out = _PLACEHOLDER_RE.sub(_sub, out)
+    out = out.replace("ALL DOCUMENTS", domain_label)
+    return out
+
+
+def _extract_target_cluster_label_from_predicate(predicate) -> Optional[str]:
+    """Recursively walk a predicate JSON tree and return the FIRST raw cluster
+    label found inside a `clause.classified_as` arg, if any. Used to
+    determine which cluster a `domain`-scoped rule actually targets."""
+    if not isinstance(predicate, dict):
+        return None
+    if predicate.get("op") == "clause.classified_as":
+        args = predicate.get("args") or []
+        if args and isinstance(args[0], str):
+            return args[0]
+    for child in (predicate.get("args") or []):
+        found = _extract_target_cluster_label_from_predicate(child)
+        if found:
+            return found
+    return None
+
+
+def _build_derivation(prov: dict, applies_to: str,
+                       field_name: Optional[str],
+                       cluster_label: Optional[str],
+                       cs) -> dict:
+    """Return a structured derivation summary the UI can render directly.
+
+    Shape:
+      {
+        "miner_kind": "coverage" | "distribution" | "categorical" | "outlier"
+                       | "contrastive" | "migrated" | "unknown",
+        "label": "...short human descriptor",   # one-liner
+        "stats": [{"key":"n","value":"5"}, ...],
+        "trail": ["cluster: Confidentiality", "field: confidentiality_duration"]
+      }
+    """
+    miner = (prov or {}).get("miner") or (
+        "migrated" if (prov or {}).get("migrated_from") else "unknown"
+    )
+    stats: list[dict] = []
+    trail: list[str] = []
+    label = ""
+
+    if cluster_label:
+        trail.append(f"cluster: {cluster_label}")
+    if field_name:
+        trail.append(f"field: {field_name}")
+
+    n = prov.get("n")
+
+    if miner == "coverage":
+        ratio = prov.get("ratio")
+        if isinstance(ratio, (int, float)):
+            stats.append({"key": "coverage", "value": f"{ratio:.0%}"})
+        if n is not None:
+            stats.append({"key": "n", "value": str(n)})
+        label = (
+            f"{int(ratio * 100) if isinstance(ratio,(int,float)) else '?'}% of "
+            f"agreements contain this clause" if ratio else "Coverage rule"
+        )
+
+    elif miner == "distribution":
+        lo, hi, med = prov.get("lo"), prov.get("hi"), prov.get("median")
+        if med is not None:
+            stats.append({"key": "median", "value": _num(med)})
+        if lo is not None and hi is not None:
+            stats.append({"key": "range", "value": f"{_num(lo)}–{_num(hi)}"})
+        if n is not None:
+            stats.append({"key": "n", "value": str(n)})
+        label = "Derived from corpus value distribution (p10..p90)."
+
+    elif miner == "categorical":
+        mode = prov.get("mode")
+        freq = prov.get("frequency")
+        if mode is not None:
+            stats.append({"key": "mode", "value": str(mode)[:32]})
+        if isinstance(freq, (int, float)):
+            stats.append({"key": "freq", "value": f"{freq:.0%}"})
+        if n is not None:
+            stats.append({"key": "n", "value": str(n)})
+        label = "Derived from dominant categorical value."
+
+    elif miner == "outlier":
+        out_pct = prov.get("outlier_pct")
+        if isinstance(out_pct, (int, float)):
+            stats.append({"key": "outlier", "value": f"{out_pct:.0%}"})
+        if n is not None:
+            stats.append({"key": "n", "value": str(n)})
+        label = "Derived from cluster-centroid outlier scoring."
+
+    elif miner == "contrastive":
+        cl = prov.get("cluster_lift")
+        gl = prov.get("global_lift")
+        lr = prov.get("lift_ratio")
+        if isinstance(lr, (int, float)):
+            stats.append({"key": "lift×", "value": f"{lr:.1f}"})
+        if isinstance(cl, (int, float)):
+            stats.append({"key": "cluster_lift", "value": f"{cl:.1f}"})
+        if isinstance(gl, (int, float)):
+            stats.append({"key": "global_lift", "value": f"{gl:.1f}"})
+        label = "Contrastive — pattern unique to this cluster vs corpus baseline."
+
+    elif miner == "migrated":
+        stats.append({"key": "source", "value": "legacy benchmark"})
+        label = "Migrated from prior similarity-only benchmark."
+
+    else:
+        if n is not None:
+            stats.append({"key": "n", "value": str(n)})
+        label = "Derived rule."
+
+    return {
+        "miner_kind": miner,
+        "label": label,
+        "stats": stats,
+        "trail": trail,
+    }
+
+
+def _num(v) -> str:
+    """Compact numeric formatter for derivation stats."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if f.is_integer():
+        return str(int(f))
+    return f"{f:.2f}".rstrip("0").rstrip(".")
 
 
 def _compute_examples(cs, *, rule: dict, field_name: Optional[str],
