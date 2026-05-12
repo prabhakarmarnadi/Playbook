@@ -2237,6 +2237,157 @@ button {
   color: var(--ink-900);
 }
 
+/* ─── FieldsPane (Fields & values rollup) ─── */
+.studio-slim .fields-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.studio-slim .fp-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--ink-100);
+}
+.studio-slim .fp-cluster {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--ink-900);
+  letter-spacing: -0.005em;
+  margin: 0;
+}
+.studio-slim .fp-cluster-meta {
+  font-size: 11px;
+  color: var(--ink-500);
+}
+.studio-slim .fp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.studio-slim .fp-row {
+  padding: 12px 14px;
+  background: var(--paper-0);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-md);
+}
+.studio-slim .fp-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.studio-slim .fp-row-head .ph {
+  color: var(--accent-500);
+  font-size: 14px;
+}
+.studio-slim .fp-field-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-900);
+}
+.studio-slim .fp-field-type {
+  font-size: 10px;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-500);
+  padding: 1px 7px;
+  background: var(--paper-2);
+  border-radius: var(--radius-pill);
+}
+.studio-slim .fp-req {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--status-error-700);
+  background: var(--status-error-50);
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+}
+.studio-slim .fp-cov,
+.studio-slim .fp-n {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ink-500);
+}
+.studio-slim .fp-n {
+  margin-left: 0;
+}
+.studio-slim .fp-desc {
+  margin-top: 6px;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  color: var(--ink-700);
+  line-height: 1.45;
+}
+.studio-slim .fp-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ink-700);
+}
+.studio-slim .fp-range-key {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--ink-500);
+  margin-right: 2px;
+}
+.studio-slim .fp-range-val {
+  color: var(--ink-900);
+  font-weight: 600;
+}
+.studio-slim .fp-range-sep {
+  color: var(--ink-300);
+  margin: 0 2px;
+}
+.studio-slim .fp-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.studio-slim .fp-ex-chip {
+  font-size: 10px;
+  color: var(--ink-800);
+  background: var(--paper-1);
+  border: 1px solid var(--ink-200);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+}
+.studio-slim .fields-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 24px;
+  color: var(--ink-500);
+  text-align: center;
+}
+.studio-slim .fields-empty .ph {
+  font-size: 28px;
+  color: var(--ink-400);
+}
+.studio-slim .fields-empty-title {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  color: var(--ink-700);
+}
+.studio-slim .fields-empty-body {
+  font-size: 13px;
+  color: var(--ink-600);
+  max-width: 460px;
+  line-height: 1.5;
+}
+
 /* provenance chip becomes a subtle inline pill */
 .studio-slim .prov-chip {
   background: transparent;

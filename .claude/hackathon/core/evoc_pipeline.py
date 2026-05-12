@@ -1649,10 +1649,25 @@ def run_evoc_pipeline(
             )
             if use_rlm:
                 progress("field_discovery", "Using dspy.RLM for field discovery (recursive exploration)")
+            # Adaptive min_cluster_chunks. On tiny corpora (<50 docs) the fixed
+            # default of 5 chunks-per-cluster kills the long-tail clusters that
+            # carry rare but important clauses (LoL, Force Majeure, Insurance).
+            # Scale down so field discovery can still extract something useful.
+            n_docs = len(agreements)
+            if n_docs <= 10:
+                adaptive_min = 2
+            elif n_docs <= 50:
+                adaptive_min = 3
+            elif n_docs <= 200:
+                adaptive_min = 4
+            else:
+                adaptive_min = 5
+            progress("field_discovery",
+                      f"min_cluster_chunks={adaptive_min} (adaptive for {n_docs} docs)")
             field_discovery_result = run_field_discovery(
                 store=store, config=fd_config,
                 progress_fn=progress, extract_values=True,
-                min_cluster_chunks=5,
+                min_cluster_chunks=adaptive_min,
                 max_extraction_workers=5,
                 min_confidence=0.5,
                 use_rlm=use_rlm,

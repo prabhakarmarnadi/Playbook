@@ -1020,6 +1020,280 @@ def portfolio(playbook_id: Optional[str] = None,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# /api/ui/cluster/{id}/fields — per-cluster fields & value distributions.
+# Shape mirrors qwen8bclauses/configs/clause_field_schemas.json so the UI
+# can render a "Fields & Values" rollup view directly.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/cluster/{cluster_id}/fields")
+def cluster_fields(cluster_id: str) -> dict:
+    cs = _cs_store()
+    try:
+        # 1. Cluster header
+        crow = cs.conn.execute(
+            "SELECT cluster_id, label, COALESCE(quality_score, 0), chunk_count "
+            "FROM clusters WHERE cluster_id = ?",
+            [cluster_id],
+        ).fetchone()
+        if not crow:
+            raise HTTPException(status_code=404, detail="cluster not found")
+        cid, raw_label, quality, chunk_count = crow
+        # Inferred label
+        inferred_map = _inferred_cluster_labels(cs)
+        display_label = inferred_map.get(cid, raw_label)
+
+        # 2. Fields
+        field_rows = cs.conn.execute(
+            "SELECT field_id, name, field_type, description "
+            "FROM field_definitions WHERE cluster_id = ? ORDER BY name",
+            [cid],
+        ).fetchall()
+        if not field_rows:
+            return {
+                "cluster_id": cid, "label": display_label, "raw_label": raw_label,
+                "quality": float(quality), "chunk_count": int(chunk_count),
+                "fields": [],
+                "note": "No fields discovered for this cluster (chunk_count below "
+                         "min_cluster_chunks threshold, or LLM call skipped).",
+            }
+
+        out_fields = []
+        for fid, fname, ftype, fdesc in field_rows:
+            # 3. Per-field extractions
+            ext_rows = cs.conn.execute(
+                "SELECT value, confidence, agreement_id FROM extractions "
+                "WHERE field_id = ? ORDER BY confidence DESC",
+                [fid],
+            ).fetchall()
+            values = [r[0] for r in ext_rows if r[0] is not None]
+            n_extractions = len(ext_rows)
+            n_distinct = len(set(values))
+
+            # 4. Classify + distribution
+            data_type, expected_values = _classify_field_values(ftype, values)
+
+            # 5. Compute coverage across agreements
+            n_agreements = len(set(r[2] for r in ext_rows if r[2]))
+            total_agreements = cs.conn.execute(
+                "SELECT COUNT(*) FROM agreements"
+            ).fetchone()[0]
+            coverage_pct = (
+                (n_agreements / total_agreements) if total_agreements > 0 else 0.0
+            )
+
+            # 6. Top-5 example extractions
+            examples = []
+            seen = set()
+            for v, conf, aid in ext_rows[:20]:
+                key = str(v)
+                if key in seen:
+                    continue
+                seen.add(key)
+                examples.append({
+                    "value": v, "confidence": float(conf or 0.0),
+                    "agreement_id": aid,
+                })
+                if len(examples) >= 5:
+                    break
+
+            out_fields.append({
+                "field_id": fid,
+                "field_name": fname,
+                "data_type": data_type,
+                "expected_values": expected_values,
+                "required": coverage_pct >= 0.80,   # heuristic
+                "description": fdesc or "",
+                "n_extractions": n_extractions,
+                "n_distinct": n_distinct,
+                "coverage_pct": round(coverage_pct, 3),
+                "n_agreements": n_agreements,
+                "examples": examples,
+            })
+
+        return {
+            "cluster_id": cid,
+            "label": display_label,
+            "raw_label": raw_label,
+            "quality": float(quality),
+            "chunk_count": int(chunk_count),
+            "fields": out_fields,
+        }
+    finally:
+        if hasattr(cs, "close"):
+            cs.close()
+
+
+def _classify_field_values(ftype: str, values: list) -> tuple[str, Any]:
+    """Mirror the qwen8bclauses schema's data_type + expected_values shape.
+
+    Returns (data_type, expected_values) where:
+      - boolean → expected_values = [True, False]
+      - enum    → expected_values = sorted list of distinct values
+      - number  → expected_values = {"typical_range": [p10, p90],
+                                       "common_values": [...top 5...],
+                                       "median": ..., "mean": ...}
+      - date    → expected_values = {"earliest": ..., "latest": ...}
+      - text    → expected_values = []  (free-text — no fixed expectations)
+    """
+    nonnull = [v for v in values if v is not None and str(v).strip() != ""]
+    n = len(nonnull)
+    if n == 0:
+        return (ftype or "text"), [] if (ftype or "text") != "boolean" else [True, False]
+
+    # Boolean
+    bool_tokens = {"true", "false", "yes", "no", "y", "n", "1", "0"}
+    bool_like = sum(1 for v in nonnull if str(v).strip().lower() in bool_tokens)
+    if (ftype == "boolean") or (bool_like >= 0.8 * n and n >= 2):
+        return "boolean", [True, False]
+
+    # Numeric
+    def _to_float(v):
+        try:
+            s = str(v).strip().replace(",", "").replace("$", "").replace("%", "")
+            return float(s.split()[0]) if s.split() else float(s)
+        except (ValueError, IndexError):
+            return None
+    nums = [_to_float(v) for v in nonnull]
+    nums = [x for x in nums if x is not None]
+    if (ftype in ("number", "integer", "float", "currency", "percentage", "duration")
+        or (len(nums) >= 0.6 * n and n >= 3)):
+        if nums:
+            sn = sorted(nums)
+            p10 = sn[max(0, int(0.10 * (len(sn) - 1)))]
+            p90 = sn[max(0, int(0.90 * (len(sn) - 1)))]
+            med = sn[len(sn) // 2]
+            mean = sum(sn) / len(sn)
+            # Top 5 distinct most common
+            from collections import Counter
+            common = [v for v, _ in Counter(nums).most_common(5)]
+            return "number", {
+                "typical_range": [_round(p10), _round(p90)],
+                "common_values": [_round(v) for v in common],
+                "median": _round(med),
+                "mean": _round(mean),
+                "n": len(nums),
+            }
+
+    # Categorical / enum: when there's a small set of distinct string values
+    distinct = sorted(set(str(v).strip() for v in nonnull))
+    if 2 <= len(distinct) <= max(8, n // 3):
+        return "enum", distinct
+
+    # Single dominant value
+    if len(distinct) == 1:
+        return "enum", distinct
+
+    # Free text fallback
+    return "text", []
+
+
+def _round(x):
+    if isinstance(x, float):
+        return round(x, 2)
+    return x
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/ui/arm_rules — surface ARM output (or empty-state explanation).
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/arm_rules")
+def arm_rules(min_lift: float = Query(1.2, ge=0.0),
+                limit: int = Query(50, ge=1, le=500)) -> dict:
+    """Return mined association rules from the arm_rules table, or an
+    informational empty-state explaining why ARM was skipped."""
+    cs = _cs_store()
+    pb = _pb_store()
+    try:
+        # Check if arm_rules table exists + has rows
+        try:
+            rows = cs.conn.execute(
+                "SELECT rule_id, antecedent, consequent, rule_type, support, "
+                "       confidence, lift, cluster_id "
+                "FROM arm_rules WHERE lift >= ? ORDER BY lift DESC LIMIT ?",
+                [min_lift, int(limit)],
+            ).fetchall()
+        except Exception:
+            rows = []
+
+        if not rows:
+            # Why was ARM skipped? Tiny corpora (< ARM_MIN_TRANSACTIONS=20 docs)
+            # have the FP-Growth pass disabled in core/arm/arm_miner.py.
+            n_docs = cs.conn.execute(
+                "SELECT COUNT(*) FROM agreements"
+            ).fetchone()[0]
+            return {
+                "arm_rules": [],
+                "skipped": True,
+                "n_agreements": int(n_docs),
+                "min_transactions": int(os.getenv("ARM_MIN_TRANSACTIONS", "20")),
+                "reason": (
+                    f"ARM skipped: corpus has {n_docs} agreements; FP-Growth "
+                    f"requires at least {os.getenv('ARM_MIN_TRANSACTIONS', '20')} "
+                    "transactions to produce statistically meaningful rules. "
+                    "Add more contracts to the corpus and re-run the pipeline."
+                ),
+            }
+
+        inferred_labels = _inferred_cluster_labels(cs)
+        # Resolve cluster_label for the per-cluster rules
+        out_rules = []
+        for rid, ant, cons, rtype, sup, conf, lift, cid in rows:
+            cluster_label = inferred_labels.get(cid) if cid else None
+            try:
+                ant_list = json.loads(ant) if isinstance(ant, str) else (ant or [])
+            except Exception:
+                ant_list = []
+            try:
+                cons_list = json.loads(cons) if isinstance(cons, str) else (cons or [])
+            except Exception:
+                cons_list = []
+            out_rules.append({
+                "rule_id": rid,
+                "antecedent": ant_list,
+                "consequent": cons_list,
+                "rule_type": rtype,
+                "support": float(sup or 0.0),
+                "confidence": float(conf or 0.0),
+                "lift": float(lift or 0.0),
+                "cluster_id": cid,
+                "cluster_label": cluster_label,
+            })
+
+        return {
+            "arm_rules": out_rules,
+            "skipped": False,
+            "n_agreements": cs.conn.execute(
+                "SELECT COUNT(*) FROM agreements"
+            ).fetchone()[0],
+            "min_transactions": int(os.getenv("ARM_MIN_TRANSACTIONS", "20")),
+        }
+    finally:
+        if hasattr(cs, "close"):
+            cs.close()
+        pb.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/ui/cluster_advisor — recommend hyperparameters for the current corpus.
+# Uses Azure OpenAI when configured, else whatever LLM_BACKEND is set, else a
+# deterministic heuristic.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/cluster_advisor")
+def cluster_advisor_recommendation() -> dict:
+    cs = _cs_store()
+    try:
+        from core.cluster_advisor import advise, summarize_corpus_from_store
+        profile = summarize_corpus_from_store(cs)
+        rec = advise(profile)
+        return {"profile": profile, "recommendation": rec}
+    finally:
+        if hasattr(cs, "close"):
+            cs.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # /api/ui/healthz
 # ─────────────────────────────────────────────────────────────────────────────
 

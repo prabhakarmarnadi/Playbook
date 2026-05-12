@@ -440,21 +440,27 @@ function RuleDetail({ rule, state, palette, onAccept, onRetire }) {
       </div>
 
       <div className="rd-tabs">
-        {["examples", "predicate", "language", "provenance", "rationale"].map(
-          (t) => (
-            <button
-              key={t}
-              className={`rd-tab ${tab === t ? "active" : ""}`}
-              onClick={() => setTab(t)}
-            >
-              {t}
-            </button>
-          ),
-        )}
+        {[
+          "examples",
+          "fields",
+          "predicate",
+          "language",
+          "provenance",
+          "rationale",
+        ].map((t) => (
+          <button
+            key={t}
+            className={`rd-tab ${tab === t ? "active" : ""}`}
+            onClick={() => setTab(t)}
+          >
+            {t}
+          </button>
+        ))}
       </div>
 
       <div className="rd-body">
         {tab === "examples" && <ExamplesPane rule={rule} palette={palette} />}
+        {tab === "fields" && <FieldsPane clusterId={rule.cluster_id} />}
         {tab === "predicate" && (
           <PredicatePane
             rule={rule}
@@ -551,6 +557,165 @@ function ExamplesPane({ rule, palette }) {
       </div>
     </div>
   );
+}
+
+/* ────────────────────────── FieldsPane ──────────────────────────────────────
+   Fetches /api/ui/cluster/{id}/fields and renders the cluster's full
+   schema + value distributions. Output shape mirrors
+   qwen8bclauses/configs/clause_field_schemas.json. */
+function FieldsPane({ clusterId }) {
+  const [state, setState] = useStateS({
+    loading: true,
+    data: null,
+    error: null,
+  });
+  React.useEffect(() => {
+    if (!clusterId) {
+      setState({
+        loading: false,
+        data: null,
+        error: "No cluster bound to this rule.",
+      });
+      return;
+    }
+    let cancel = false;
+    setState({ loading: true, data: null, error: null });
+    fetch(`/api/ui/cluster/${encodeURIComponent(clusterId)}/fields`)
+      .then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)),
+      )
+      .then((data) => {
+        if (!cancel) setState({ loading: false, data, error: null });
+      })
+      .catch((e) => {
+        if (!cancel) setState({ loading: false, data: null, error: e.message });
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [clusterId]);
+
+  if (state.loading)
+    return <div className="fields-pane fields-empty">Loading fields…</div>;
+  if (state.error)
+    return <div className="fields-pane fields-empty">{state.error}</div>;
+  const d = state.data;
+  if (!d || !d.fields || d.fields.length === 0) {
+    return (
+      <div className="fields-pane fields-empty">
+        <i className="ph ph-funnel-x" aria-hidden="true" />
+        <div className="fields-empty-title">
+          No fields discovered for this cluster.
+        </div>
+        <div className="fields-empty-body">
+          {d?.note ||
+            "The cluster has too few chunks for field discovery, or the discovery step has not run yet."}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="fields-pane">
+      <div className="fp-header">
+        <h3 className="fp-cluster">{d.label}</h3>
+        <span className="fp-cluster-meta mono">
+          {d.fields.length} fields · {d.chunk_count} chunks · q=
+          {d.quality.toFixed(2)}
+        </span>
+      </div>
+      <div className="fp-list">
+        {d.fields.map((f) => (
+          <FieldRow key={f.field_id} f={f} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FieldRow({ f }) {
+  const typeIcon =
+    {
+      boolean: "ph-check-square",
+      enum: "ph-list-bullets",
+      number: "ph-chart-bar",
+      text: "ph-text-aa",
+      date: "ph-calendar",
+    }[f.data_type] || "ph-circle";
+  return (
+    <div className="fp-row">
+      <div className="fp-row-head">
+        <i className={`ph ${typeIcon}`} aria-hidden="true" />
+        <span className="fp-field-name mono">{f.field_name}</span>
+        <span className="fp-field-type">{f.data_type}</span>
+        {f.required && <span className="fp-req">required</span>}
+        <span className="fp-cov mono">
+          cov {Math.round(f.coverage_pct * 100)}%
+        </span>
+        <span className="fp-n mono">n={f.n_extractions}</span>
+      </div>
+      {f.description && <div className="fp-desc">{f.description}</div>}
+      <FieldValueRange f={f} />
+      {f.examples && f.examples.length > 0 && (
+        <div className="fp-examples">
+          {f.examples.slice(0, 5).map((e, i) => (
+            <span
+              key={i}
+              className="fp-ex-chip mono"
+              title={`from ${e.agreement_id}`}
+            >
+              {String(e.value).slice(0, 32)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FieldValueRange({ f }) {
+  const ev = f.expected_values;
+  if (!ev) return null;
+  if (
+    f.data_type === "number" &&
+    typeof ev === "object" &&
+    !Array.isArray(ev)
+  ) {
+    return (
+      <div className="fp-range">
+        <span className="fp-range-key">range</span>
+        <span className="fp-range-val mono">
+          {ev.typical_range?.[0]}–{ev.typical_range?.[1]}
+        </span>
+        <span className="fp-range-sep">·</span>
+        <span className="fp-range-key">median</span>
+        <span className="fp-range-val mono">{ev.median}</span>
+        {ev.common_values && ev.common_values.length > 0 && (
+          <>
+            <span className="fp-range-sep">·</span>
+            <span className="fp-range-key">common</span>
+            {ev.common_values.slice(0, 5).map((v, i) => (
+              <span key={i} className="fp-ex-chip mono">
+                {v}
+              </span>
+            ))}
+          </>
+        )}
+      </div>
+    );
+  }
+  if (Array.isArray(ev) && ev.length > 0 && ev.length <= 12) {
+    return (
+      <div className="fp-range">
+        <span className="fp-range-key">values</span>
+        {ev.map((v, i) => (
+          <span key={i} className="fp-ex-chip mono">
+            {String(v).slice(0, 32)}
+          </span>
+        ))}
+      </div>
+    );
+  }
+  return null;
 }
 
 function PredicatePane({ rule, showJson, setShowJson }) {
